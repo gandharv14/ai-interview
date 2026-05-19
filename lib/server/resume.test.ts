@@ -28,6 +28,32 @@ describe("resume parsing", () => {
     expect(profile.highSignalClaims[0]).toContain("Led API migration");
   });
 
+  it("installs PDF runtime globals when Node does not provide DOMMatrix", async () => {
+    const originalDOMMatrix = globalThis.DOMMatrix;
+    const originalImageData = globalThis.ImageData;
+    const originalPath2D = globalThis.Path2D;
+    Reflect.deleteProperty(globalThis, "DOMMatrix");
+    Reflect.deleteProperty(globalThis, "ImageData");
+    Reflect.deleteProperty(globalThis, "Path2D");
+
+    try {
+      const file = new File(
+        [createPdfFixture(["Grace Hopper", "Built TypeScript systems."])],
+        "resume.pdf",
+        { type: "application/pdf" },
+      );
+
+      await expect(extractResumeText(file)).resolves.toContain("Grace Hopper");
+      expect(globalThis.DOMMatrix).toBeDefined();
+      expect(globalThis.ImageData).toBeDefined();
+      expect(globalThis.Path2D).toBeDefined();
+    } finally {
+      restoreGlobal("DOMMatrix", originalDOMMatrix);
+      restoreGlobal("ImageData", originalImageData);
+      restoreGlobal("Path2D", originalPath2D);
+    }
+  });
+
   it("rejects non-PDF and invalid PDF resume files", async () => {
     await expect(
       extractResumeText(new File(["Ada Lovelace"], "resume.txt", { type: "text/plain" })),
@@ -68,4 +94,15 @@ function createPdfFixture(lines: string[]) {
     .join("");
   pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
   return Buffer.from(pdf, "latin1");
+}
+
+function restoreGlobal<T extends keyof typeof globalThis>(
+  key: T,
+  value: (typeof globalThis)[T],
+) {
+  if (value === undefined) {
+    Reflect.deleteProperty(globalThis, key);
+    return;
+  }
+  globalThis[key] = value;
 }

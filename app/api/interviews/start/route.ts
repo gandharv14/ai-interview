@@ -19,6 +19,8 @@ import {
   parseResumeProfile,
 } from "@/lib/server/resume";
 
+export const runtime = "nodejs";
+
 const MAX_RESUME_BYTES = 12 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {

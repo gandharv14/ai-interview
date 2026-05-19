@@ -29,6 +29,7 @@ export async function extractResumeText(file: File) {
     throw new ResumeFileError("Resume must be a valid PDF file.");
   }
 
+  await installPdfRuntimeGlobals();
   const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: buffer });
   try {
@@ -46,6 +47,15 @@ export async function extractResumeText(file: File) {
   } finally {
     await parser.destroy().catch(() => undefined);
   }
+}
+
+async function installPdfRuntimeGlobals() {
+  if (globalThis.DOMMatrix && globalThis.ImageData && globalThis.Path2D) return;
+
+  const canvas = await import("@napi-rs/canvas");
+  globalThis.DOMMatrix ??= canvas.DOMMatrix as unknown as typeof DOMMatrix;
+  globalThis.ImageData ??= canvas.ImageData as unknown as typeof ImageData;
+  globalThis.Path2D ??= canvas.Path2D as unknown as typeof Path2D;
 }
 
 export async function parseResumeProfile(
