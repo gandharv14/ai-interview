@@ -8,7 +8,7 @@ import {
 import { createInvite } from "@/lib/server/store";
 
 export async function POST(request: NextRequest) {
-  if (!isAdminRequest(request)) return adminUnauthorized();
+  if (!(await isAdminRequest(request))) return adminUnauthorized();
 
   const body = await request.json();
   const input = createInviteSchema.parse(body);

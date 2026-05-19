@@ -12,8 +12,11 @@ Rotate any OpenAI API key that was shared in chat before using this app.
 4. Run `supabase/migrations/0001_interview_agent.sql` in the Supabase SQL Editor.
 5. Confirm the private Storage buckets `resumes` and `interview-recordings` exist.
 6. Add `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`.
-7. Set strong values for `INVITE_SIGNING_SECRET`, `ADMIN_PASSPHRASE`, and `ADMIN_SESSION_SECRET`.
-8. Run `npm install` and `npm run dev`.
+7. Set a strong value for `INVITE_SIGNING_SECRET`.
+8. Add your existing Auth0 Regular Web Application values: `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, and a 32-byte hex `AUTH0_SECRET`.
+9. Set `APP_BASE_URL` and `NEXT_PUBLIC_APP_URL` to your app URL.
+10. In Auth0, allow `http://localhost:3000/auth/callback` as a callback URL and `http://localhost:3000` as a logout URL for local development.
+11. Run `npm install` and `npm run dev`.
 
 Without Supabase env vars, local development and tests use `.local-data/store.json` plus local upload files. Production requires Supabase.
 
@@ -41,8 +44,11 @@ vercel env add SUPABASE_URL
 vercel env add SUPABASE_ANON_KEY
 vercel env add SUPABASE_SERVICE_ROLE_KEY
 vercel env add INVITE_SIGNING_SECRET
-vercel env add ADMIN_PASSPHRASE
-vercel env add ADMIN_SESSION_SECRET
+vercel env add AUTH0_DOMAIN
+vercel env add AUTH0_CLIENT_ID
+vercel env add AUTH0_CLIENT_SECRET
+vercel env add AUTH0_SECRET
+vercel env add APP_BASE_URL
 vercel env add NEXT_PUBLIC_APP_URL
 vercel deploy -y
 ```

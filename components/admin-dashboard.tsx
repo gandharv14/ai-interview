@@ -73,12 +73,10 @@ export function AdminDashboard({ initialInterviews }: Props) {
           </p>
           <h1 className="mt-1 text-3xl font-bold">Software Interview Console</h1>
         </div>
-        <form action="/api/admin/logout" method="post">
-          <button className="button button-secondary" type="submit">
-            <LogOut size={17} aria-hidden />
-            Sign out
-          </button>
-        </form>
+        <a className="button button-secondary" href="/auth/logout">
+          <LogOut size={17} aria-hidden />
+          Sign out
+        </a>
       </header>
 
       <section className="grid-two">

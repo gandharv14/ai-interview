@@ -1,4 +1,35 @@
 import { expect, test } from "@playwright/test";
+import { generateSessionCookie } from "@auth0/nextjs-auth0/testing";
+
+const auth0Secret =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+test.beforeEach(async ({ context }) => {
+  const sessionCookie = await generateSessionCookie(
+    {
+      user: {
+        sub: "auth0|e2e-admin",
+        name: "E2E Admin",
+        email: "admin@example.com",
+      },
+      tokenSet: {
+        accessToken: "test-access-token",
+        expiresAt: Math.floor(Date.now() / 1000) + 60 * 60,
+      },
+    },
+    { secret: auth0Secret },
+  );
+
+  await context.addCookies([
+    {
+      name: "__session",
+      value: sessionCookie,
+      url: "http://localhost:3100",
+      httpOnly: true,
+      sameSite: "Lax",
+    },
+  ]);
+});
 
 test("admin creates invite and candidate completes mocked interview workflow", async ({
   page,
@@ -6,8 +37,6 @@ test("admin creates invite and candidate completes mocked interview workflow", a
   const candidateName = `Grace Hopper ${Date.now()}`;
 
   await page.goto("/admin");
-  await page.getByLabel("Admin passphrase").fill("admin-dev-passphrase");
-  await page.getByRole("button", { name: "Sign in" }).click();
   await expect(
     page.getByRole("heading", { name: "Software Interview Console" }),
   ).toBeVisible();
