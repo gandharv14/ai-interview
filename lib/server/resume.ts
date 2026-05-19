@@ -30,7 +30,11 @@ export async function extractResumeText(file: File) {
   }
 
   await installPdfRuntimeGlobals();
-  const { PDFParse } = await import("pdf-parse");
+  const [{ PDFParse }, { getPath: getPdfWorkerPath }] = await Promise.all([
+    import("pdf-parse"),
+    import("pdf-parse/worker"),
+  ]);
+  PDFParse.setWorker(getPdfWorkerPath());
   const parser = new PDFParse({ data: buffer });
   try {
     const parsed = await parser.getText({
