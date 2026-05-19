@@ -1,0 +1,46 @@
+{
+  "name": "interview-agent",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "vitest",
+    "test:unit": "vitest run",
+    "test:e2e": "PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers playwright install chromium && PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers playwright test",
+    "test:all": "npm run lint && npm run test:unit && npm run test:e2e && npm run build"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.89.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.16.0",
+    "mammoth": "^1.11.0",
+    "nanoid": "^5.1.11",
+    "next": "16.2.6",
+    "openai": "^6.10.0",
+    "pdf-parse": "^2.4.5",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "server-only": "^0.0.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.0.2",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.6",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4.1.6"
+  }
+}

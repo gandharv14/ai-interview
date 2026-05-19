@@ -1,0 +1,13 @@
+.DS_Store
+.env
+.env.local
+.env.*.local
+.next
+.vercel
+node_modules
+coverage
+playwright-report
+test-results
+.playwright-browsers
+.local-data
+*.tsbuildinfo
