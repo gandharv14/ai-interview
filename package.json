@@ -13,6 +13,7 @@
     "test:all": "npm run lint && npm run test:unit && npm run test:e2e && npm run build"
   },
   "dependencies": {
+    "@auth0/nextjs-auth0": "^4.20.0",
     "@supabase/supabase-js": "^2.89.0",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",
