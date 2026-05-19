@@ -17,10 +17,13 @@ type Props = {
 };
 
 export default async function InterviewDetailPage({ params }: Props) {
-  const signedIn = await isAdminSignedIn();
-  if (!signedIn) redirect("/admin");
-
   const { id } = await params;
+  const signedIn = await isAdminSignedIn();
+  if (!signedIn) {
+    const returnTo = encodeURIComponent(`/admin/interviews/${id}`);
+    redirect(`/auth/login?returnTo=${returnTo}`);
+  }
+
   const interview = await getInterview(id);
   if (!interview) notFound();
   const [events, summary, resumeUrl, recordingUrl] = await Promise.all([
