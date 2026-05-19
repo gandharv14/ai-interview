@@ -459,14 +459,19 @@ export async function appendInterviewEvents(
     const { data, error } = await supabase
       .from("interview_events")
       .insert(
-        events.map((event) => ({
-          interview_id: interviewId,
-          source: event.source,
-          type: event.type,
-          text: event.text,
-          payload: event.payload,
-          created_at: event.createdAt,
-        })),
+        events.map((event) => {
+          const row: Record<string, unknown> = {
+            interview_id: interviewId,
+            source: event.source,
+            type: event.type,
+            text: event.text,
+            payload: event.payload,
+          };
+          if (event.createdAt) {
+            row.created_at = event.createdAt;
+          }
+          return row;
+        }),
       )
       .select("*");
     if (error) throw error;
@@ -610,7 +615,7 @@ async function uploadPrivateFile(bucket: string, objectPath: string, file: File)
       contentType: file.type || "application/octet-stream",
       upsert: true,
     });
-    if (error) throw error;
+    if (error) throw translateStorageError(error, bucket, objectPath);
     return objectPath;
   }
 
@@ -653,4 +658,34 @@ export function recordingBucketName() {
 function safeFileName(name: string) {
   const cleaned = name.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/-+/g, "-");
   return cleaned || "resume";
+}
+
+function translateStorageError(
+  error: unknown,
+  bucket: string,
+  objectPath: string,
+) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" && error !== null && "message" in error
+        ? String((error as { message: unknown }).message)
+        : String(error);
+  const statusCode =
+    typeof error === "object" && error !== null && "statusCode" in error
+      ? String((error as { statusCode: unknown }).statusCode)
+      : undefined;
+  const isRlsFailure =
+    /row[- ]level security/i.test(message) ||
+    /not authorized/i.test(message) ||
+    /unauthorized/i.test(message) ||
+    statusCode === "403";
+  if (!isRlsFailure) {
+    return error instanceof Error ? error : new Error(message);
+  }
+  return new Error(
+    `Supabase storage rejected upload to "${bucket}/${objectPath}" due to row-level security. ` +
+      `Confirm SUPABASE_SERVICE_ROLE_KEY is the service_role JWT (not the anon key) and that the "${bucket}" bucket exists. ` +
+      `Original error: ${message}`,
+  );
 }

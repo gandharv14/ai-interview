@@ -27,6 +27,9 @@ export async function POST(request: NextRequest) {
   try {
     return await startInterview(request);
   } catch (error) {
+    if (!(error instanceof ResumeFileError)) {
+      console.error("/api/interviews/start failed", error);
+    }
     return NextResponse.json(
       { error: errorMessage(error) },
       { status: error instanceof ResumeFileError ? 400 : 500 },
@@ -125,7 +128,16 @@ async function startInterview(request: NextRequest) {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error && error.message
-    ? error.message
-    : "Could not start interview";
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string" && error.length > 0) return error;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as { message: unknown }).message === "string" &&
+    (error as { message: string }).message.length > 0
+  ) {
+    return (error as { message: string }).message;
+  }
+  return "Could not start interview";
 }

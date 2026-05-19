@@ -11,7 +11,7 @@ Rotate any OpenAI API key that was shared in chat before using this app.
 3. Create a Supabase project.
 4. Run `supabase/migrations/0001_interview_agent.sql` in the Supabase SQL Editor.
 5. Confirm the private Storage buckets `resumes` and `interview-recordings` exist.
-6. Add `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`.
+6. Add `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`. `SUPABASE_SERVICE_ROLE_KEY` must be the `service_role` JWT from Supabase Dashboard -> Project Settings -> API -> Project API keys -> `service_role` (decode the JWT payload to confirm `"role":"service_role"`). It is server-only and never returned to the browser. Setting it to the anon key causes uploads to fail with "new row violates row-level security policy". `SUPABASE_ANON_KEY` is kept in `.env` for parity with other tooling; the app itself never reads it.
 7. Set a strong value for `INVITE_SIGNING_SECRET`.
 8. Add your existing Auth0 Regular Web Application values: `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, and a 32-byte hex `AUTH0_SECRET`.
 9. Set `APP_BASE_URL` and `NEXT_PUBLIC_APP_URL` to your app URL.

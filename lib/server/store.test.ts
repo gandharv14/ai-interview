@@ -1,4 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const supabaseAdminMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/server/supabase", () => ({
+  getSupabaseAdmin: supabaseAdminMock,
+  assertServiceRoleKey: vi.fn(),
+}));
+
 import {
   appendInterviewEvents,
   createInterview,
@@ -52,5 +60,41 @@ describe("local store fallback", () => {
     const events = await listInterviewEvents(interview.id);
     expect(events).toHaveLength(1);
     expect(events[0].text).toBe("Walk me through it.");
+  });
+});
+
+describe("appendInterviewEvents (Supabase path)", () => {
+  afterEach(() => {
+    supabaseAdminMock.mockReset();
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  });
+
+  it("omits created_at when the caller does not provide one", async () => {
+    process.env.SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
+
+    const insertSpy = vi.fn().mockReturnValue({
+      select: vi.fn().mockResolvedValue({ data: [], error: null }),
+    });
+    const fromSpy = vi.fn().mockReturnValue({ insert: insertSpy });
+    supabaseAdminMock.mockReturnValue({ from: fromSpy });
+
+    const providedAt = new Date("2026-05-01T12:00:00.000Z").toISOString();
+    await appendInterviewEvents("int_1", [
+      { source: "system", type: "resume_parsed", text: "ok" },
+      {
+        source: "agent",
+        type: "question",
+        text: "explain",
+        createdAt: providedAt,
+      },
+    ]);
+
+    expect(fromSpy).toHaveBeenCalledWith("interview_events");
+    const rows = insertSpy.mock.calls[0][0] as Record<string, unknown>[];
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).not.toHaveProperty("created_at");
+    expect(rows[1]).toMatchObject({ created_at: providedAt });
   });
 });
