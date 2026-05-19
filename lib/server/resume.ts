@@ -8,31 +8,44 @@ import {
 import type { ParsedResume } from "@/lib/types";
 
 const MAX_RESUME_CHARS = 90_000;
+const PDF_MIME_TYPE = "application/pdf";
+
+export class ResumeFileError extends Error {}
+
+export function isPdfResumeFile(file: File) {
+  const name = file.name.toLowerCase();
+  const type = file.type.toLowerCase();
+  return name.endsWith(".pdf") && (!type || type === PDF_MIME_TYPE);
+}
 
 export async function extractResumeText(file: File) {
-  const name = file.name.toLowerCase();
+  if (!isPdfResumeFile(file)) {
+    throw new ResumeFileError("Resume must be a PDF file.");
+  }
+
   const buffer = Buffer.from(await file.arrayBuffer());
 
-  if (file.type === "application/pdf" || name.endsWith(".pdf")) {
-    const pdfParseModule = await import("pdf-parse");
-    const pdfParse = (
-      "default" in pdfParseModule ? pdfParseModule.default : pdfParseModule
-    ) as (input: Buffer) => Promise<{ text: string }>;
-    const parsed = await pdfParse(buffer);
-    return normalizeText(parsed.text);
+  if (buffer.subarray(0, 5).toString("latin1") !== "%PDF-") {
+    throw new ResumeFileError("Resume must be a valid PDF file.");
   }
 
-  if (
-    file.type ===
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-    name.endsWith(".docx")
-  ) {
-    const mammoth = await import("mammoth");
-    const parsed = await mammoth.extractRawText({ buffer });
-    return normalizeText(parsed.value);
+  const { PDFParse } = await import("pdf-parse");
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const parsed = await parser.getText({
+      cellSeparator: " ",
+      pageJoiner: "",
+    });
+    const text = normalizeText(parsed.text);
+    if (!text) {
+      throw new ResumeFileError(
+        "Resume PDF did not contain extractable text. Upload a text-based PDF resume.",
+      );
+    }
+    return text;
+  } finally {
+    await parser.destroy().catch(() => undefined);
   }
-
-  return normalizeText(buffer.toString("utf8"));
 }
 
 export async function parseResumeProfile(

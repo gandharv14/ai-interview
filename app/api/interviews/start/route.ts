@@ -14,23 +14,49 @@ import {
 } from "@/lib/server/store";
 import {
   extractResumeText,
+  isPdfResumeFile,
+  ResumeFileError,
   parseResumeProfile,
 } from "@/lib/server/resume";
 
 const MAX_RESUME_BYTES = 12 * 1024 * 1024;
 
 export async function POST(request: NextRequest) {
+  try {
+    return await startInterview(request);
+  } catch (error) {
+    return NextResponse.json(
+      { error: errorMessage(error) },
+      { status: error instanceof ResumeFileError ? 400 : 500 },
+    );
+  }
+}
+
+async function startInterview(request: NextRequest) {
   const formData = await request.formData();
-  const fields = interviewStartFormSchema.parse({
+  const parsedFields = interviewStartFormSchema.safeParse({
     token: formData.get("token"),
     candidateName: formData.get("candidateName") || undefined,
     candidateEmail: formData.get("candidateEmail") || undefined,
     consent: formData.get("consent"),
   });
+  if (!parsedFields.success) {
+    return NextResponse.json(
+      { error: "Check the resume upload form and try again." },
+      { status: 400 },
+    );
+  }
+  const fields = parsedFields.data;
 
   const resume = formData.get("resume");
   if (!(resume instanceof File)) {
     return NextResponse.json({ error: "Resume file is required" }, { status: 400 });
+  }
+  if (!isPdfResumeFile(resume)) {
+    return NextResponse.json(
+      { error: "Resume must be a PDF file." },
+      { status: 400 },
+    );
   }
   if (resume.size > MAX_RESUME_BYTES) {
     return NextResponse.json(
@@ -94,4 +120,10 @@ export async function POST(request: NextRequest) {
     interview: updated,
     parsedResume,
   });
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error && error.message
+    ? error.message
+    : "Could not start interview";
 }

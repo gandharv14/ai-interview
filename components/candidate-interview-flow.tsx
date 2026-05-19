@@ -36,6 +36,10 @@ type StartResponse = {
   error?: string;
 };
 
+type ErrorResponse = {
+  error?: string;
+};
+
 export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
   const [stage, setStage] = useState<Stage>("upload");
   const [error, setError] = useState("");
@@ -60,6 +64,10 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
       setError("Choose a resume file first.");
       return;
     }
+    if (!isPdfFile(resume)) {
+      setError("Upload a PDF resume.");
+      return;
+    }
 
     formData.set("token", token);
     formData.set("consent", formData.get("consent") === "on" ? "true" : "false");
@@ -69,7 +77,7 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
         method: "POST",
         body: formData,
       });
-      const data = (await response.json()) as StartResponse;
+      const data = await readJsonResponse<StartResponse>(response);
       if (!response.ok) throw new Error(data.error || "Could not start interview");
       setInterview(data.interview);
       setParsedResume(data.parsedResume);
@@ -111,9 +119,9 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
         `/api/interviews/${interview.id}/realtime-token`,
         { method: "POST" },
       );
-      const tokenData = (await tokenResponse.json()) as RealtimeTokenResponse & {
-        error?: string;
-      };
+      const tokenData = await readJsonResponse<
+        RealtimeTokenResponse & ErrorResponse
+      >(tokenResponse);
       if (!tokenResponse.ok) {
         throw new Error(tokenData.error || "Could not create realtime session");
       }
@@ -255,7 +263,10 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
       const complete = await fetch(`/api/interviews/${interview.id}/complete`, {
         method: "POST",
       });
-      const data = (await complete.json()) as { interview?: Interview; error?: string };
+      const data = await readJsonResponse<{
+        interview?: Interview;
+        error?: string;
+      }>(complete);
       if (!complete.ok) throw new Error(data.error || "Could not complete interview");
       if (data.interview) setInterview(data.interview);
       setStage("completed");
@@ -299,7 +310,7 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
     const complete = await fetch(`/api/interviews/${current.id}/complete`, {
       method: "POST",
     });
-    const data = (await complete.json()) as { interview?: Interview };
+    const data = await readJsonResponse<{ interview?: Interview }>(complete);
     if (data.interview) setInterview(data.interview);
     setStage("completed");
   }
@@ -399,9 +410,12 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
                   name="resume"
                   className="file-input"
                   type="file"
-                  accept=".pdf,.docx,.txt,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  accept="application/pdf,.pdf"
                   required
                 />
+                <p className="muted mt-1 text-sm">
+                  PDF files only.
+                </p>
               </div>
               <label className="flex items-start gap-3 text-sm font-bold">
                 <input name="consent" type="checkbox" required className="mt-1" />
@@ -528,4 +542,32 @@ declare global {
   interface Window {
     webkitAudioContext?: typeof AudioContext;
   }
+}
+
+async function readJsonResponse<T>(response: Response): Promise<T & ErrorResponse> {
+  const text = await response.text();
+  if (!text.trim()) {
+    if (response.ok) {
+      throw new Error("Server returned an empty response");
+    }
+    return {
+      error: `Request failed with status ${response.status}`,
+    } as T & ErrorResponse;
+  }
+
+  try {
+    return JSON.parse(text) as T & ErrorResponse;
+  } catch {
+    if (!response.ok) {
+      return {
+        error: `Request failed with status ${response.status}`,
+      } as T & ErrorResponse;
+    }
+    throw new Error("Server returned an invalid JSON response");
+  }
+}
+
+function isPdfFile(file: File) {
+  const type = file.type.toLowerCase();
+  return file.name.toLowerCase().endsWith(".pdf") && (!type || type === "application/pdf");
 }
