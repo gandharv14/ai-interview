@@ -13,7 +13,7 @@ export function getRealtimeModel() {
 }
 
 export function getTextModel() {
-  return process.env.OPENAI_TEXT_MODEL ?? "gpt-5.4-mini";
+  return process.env.OPENAI_TEXT_MODEL ?? "gpt-5.5";
 }
 
 export function getTranscribeModel() {

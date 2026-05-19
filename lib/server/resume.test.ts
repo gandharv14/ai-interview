@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { extractResumeText, parseResumeProfile } from "@/lib/server/resume";
+import { parsedResumeJsonSchema } from "@/lib/schemas";
 import { createPdfFixture } from "@/test/fixtures/pdf";
 
 describe("resume parsing", () => {
@@ -57,6 +58,76 @@ describe("resume parsing", () => {
       restoreGlobal("DOMMatrix", originalDOMMatrix);
       restoreGlobal("ImageData", originalImageData);
       restoreGlobal("Path2D", originalPath2D);
+    }
+  });
+
+  it("calls GPT-5.5 with a strict-mode schema and tolerates nullable resume fields", async () => {
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    delete process.env.OPENAI_TEXT_MODEL;
+
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            output_text: JSON.stringify({
+              candidateName: "Grace Hopper",
+              email: null,
+              phone: null,
+              headline: "Distributed systems engineer",
+              skills: ["TypeScript", "Postgres"],
+              experience: [
+                {
+                  company: "Acme",
+                  title: "Staff Engineer",
+                  startDate: null,
+                  endDate: null,
+                  highlights: ["Owned API migration"],
+                },
+              ],
+              projects: [
+                {
+                  name: "Cluster ledger",
+                  description: "Sharded ledger for analytics",
+                  technologies: ["Go", "Postgres"],
+                  impact: null,
+                },
+              ],
+              education: ["BS Computer Science"],
+              highSignalClaims: ["Owned API migration"],
+            }),
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    try {
+      const profile = await parseResumeProfile("Resume text", {
+        roleTitle: "Senior Backend Engineer",
+        level: "L5",
+        jobDescription: "Distributed systems",
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe("https://api.openai.com/v1/responses");
+      const body = JSON.parse((init as RequestInit).body as string);
+      expect(body.model).toBe("gpt-5.5");
+      expect(body.text.format).toMatchObject({
+        type: "json_schema",
+        name: "resume_profile",
+        strict: true,
+      });
+      expect(body.text.format.schema).toEqual(parsedResumeJsonSchema);
+
+      expect(profile.candidateName).toBe("Grace Hopper");
+      expect(profile.email).toBeUndefined();
+      expect(profile.phone).toBeUndefined();
+      expect(profile.experience[0]?.startDate).toBeUndefined();
+      expect(profile.projects[0]?.impact).toBeUndefined();
+      expect(profile.highSignalClaims).toContain("Owned API migration");
+    } finally {
+      fetchMock.mockRestore();
     }
   });
 

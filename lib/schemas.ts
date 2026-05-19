@@ -1,10 +1,15 @@
 import { z } from "zod";
 
+const nullableString = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((value) => (value == null ? undefined : value));
+
 export const resumeExperienceSchema = z.object({
   company: z.string().default(""),
   title: z.string().default(""),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
+  startDate: nullableString,
+  endDate: nullableString,
   highlights: z.array(z.string()).default([]),
 });
 
@@ -12,13 +17,16 @@ export const resumeProjectSchema = z.object({
   name: z.string().default(""),
   description: z.string().default(""),
   technologies: z.array(z.string()).default([]),
-  impact: z.string().optional(),
+  impact: nullableString,
 });
 
 export const parsedResumeSchema = z.object({
-  candidateName: z.string().optional(),
-  email: z.string().email().optional(),
-  phone: z.string().optional(),
+  candidateName: nullableString,
+  email: z
+    .union([z.string().email(), z.string().length(0), z.null()])
+    .optional()
+    .transform((value) => (value ? value : undefined)),
+  phone: nullableString,
   headline: z.string().default(""),
   skills: z.array(z.string()).default([]),
   experience: z.array(resumeExperienceSchema).default([]),
@@ -68,9 +76,9 @@ export const parsedResumeJsonSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    candidateName: { type: "string" },
-    email: { type: "string" },
-    phone: { type: "string" },
+    candidateName: { type: ["string", "null"] },
+    email: { type: ["string", "null"] },
+    phone: { type: ["string", "null"] },
     headline: { type: "string" },
     skills: { type: "array", items: { type: "string" } },
     experience: {
@@ -81,11 +89,11 @@ export const parsedResumeJsonSchema = {
         properties: {
           company: { type: "string" },
           title: { type: "string" },
-          startDate: { type: "string" },
-          endDate: { type: "string" },
+          startDate: { type: ["string", "null"] },
+          endDate: { type: ["string", "null"] },
           highlights: { type: "array", items: { type: "string" } },
         },
-        required: ["company", "title", "highlights"],
+        required: ["company", "title", "startDate", "endDate", "highlights"],
       },
     },
     projects: {
@@ -97,15 +105,18 @@ export const parsedResumeJsonSchema = {
           name: { type: "string" },
           description: { type: "string" },
           technologies: { type: "array", items: { type: "string" } },
-          impact: { type: "string" },
+          impact: { type: ["string", "null"] },
         },
-        required: ["name", "description", "technologies"],
+        required: ["name", "description", "technologies", "impact"],
       },
     },
     education: { type: "array", items: { type: "string" } },
     highSignalClaims: { type: "array", items: { type: "string" } },
   },
   required: [
+    "candidateName",
+    "email",
+    "phone",
     "headline",
     "skills",
     "experience",
