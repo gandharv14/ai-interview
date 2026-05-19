@@ -21,6 +21,9 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     env: {
       OPENAI_API_KEY: "",
+      SUPABASE_URL: "",
+      SUPABASE_ANON_KEY: "",
+      SUPABASE_SERVICE_ROLE_KEY: "",
       INVITE_SIGNING_SECRET: "test-invite-signing-secret",
       AUTH0_DOMAIN: "example.auth0.com",
       AUTH0_CLIENT_ID: "test-client-id",
