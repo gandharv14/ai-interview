@@ -11,7 +11,10 @@ import {
   appendInterviewEvents,
   createInterview,
   createInvite,
+  deleteInterview,
+  getInterview,
   getInviteByTokenHash,
+  getInterviewSummary,
   listInterviews,
   listInterviewEvents,
   saveInterviewSummary,
@@ -62,6 +65,40 @@ describe("local store fallback", () => {
     const events = await listInterviewEvents(interview.id);
     expect(events).toHaveLength(1);
     expect(events[0].text).toBe("Walk me through it.");
+  });
+
+  it("deletes interviews and their local child records", async () => {
+    const interview = await createInterview({
+      candidateName: "Grace",
+      roleTitle: "Backend Engineer",
+      level: "L5",
+      jobDescription: "APIs",
+      parsedResume: {
+        headline: "Backend engineer",
+        skills: ["Go"],
+        experience: [],
+        projects: [],
+        education: [],
+        highSignalClaims: [],
+      },
+    });
+
+    await appendInterviewEvents(interview.id, [
+      { source: "agent", type: "question", text: "Tell me about scale." },
+    ]);
+    await saveInterviewSummary(interview.id, {
+      model: "test",
+      evidence: ["Scaled APIs"],
+      strengths: [],
+      risks: [],
+      followUpQuestions: [],
+    });
+
+    await expect(deleteInterview(interview.id)).resolves.toBe(true);
+    await expect(deleteInterview(interview.id)).resolves.toBe(false);
+    await expect(getInterview(interview.id)).resolves.toBeUndefined();
+    await expect(listInterviewEvents(interview.id)).resolves.toEqual([]);
+    await expect(getInterviewSummary(interview.id)).resolves.toBeUndefined();
   });
 });
 

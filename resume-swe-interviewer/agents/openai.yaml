@@ -1,0 +1,5 @@
+interface:
+  display_name: "Resume SWE Interviewer"
+  short_description: "Probe resume projects for L3+ SWE signal"
+  model: "gpt-realtime-2"
+  default_prompt: "Use $resume-swe-interviewer to run a resume-based SWE L3+ interview from this candidate resume."

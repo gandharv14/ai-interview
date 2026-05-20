@@ -9,6 +9,7 @@ import {
   LogOut,
   Plus,
   RefreshCw,
+  Trash2,
   UserRound,
 } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
@@ -27,7 +28,9 @@ export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
   const [interviews, setInterviews] = useState(initialInterviews);
   const [inviteUrl, setInviteUrl] = useState("");
   const [busy, setBusy] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [interviewError, setInterviewError] = useState("");
   const databaseUnavailable = Boolean(setupIssue);
 
   async function createInvite(formData: FormData) {
@@ -69,10 +72,40 @@ export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
       error?: string;
     };
     if (!response.ok) {
-      setError(data.error || "Could not refresh interviews");
+      setInterviewError(data.error || "Could not refresh interviews");
       return;
     }
-    if (data.interviews) setInterviews(data.interviews);
+    if (data.interviews) {
+      setInterviewError("");
+      setInterviews(data.interviews);
+    }
+  }
+
+  async function deleteInterview(id: string, candidateName: string) {
+    if (setupIssue) {
+      setInterviewError(setupIssue.message);
+      return;
+    }
+    if (!window.confirm(`Delete interview for ${candidateName}?`)) return;
+
+    setDeletingId(id);
+    setInterviewError("");
+    try {
+      const response = await fetch(`/api/admin/interviews/${id}`, {
+        method: "DELETE",
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(data.error || "Could not delete interview");
+      setInterviews((current) =>
+        current.filter((interview) => interview.id !== id),
+      );
+    } catch (err) {
+      setInterviewError(
+        err instanceof Error ? err.message : "Could not delete interview",
+      );
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   async function copyInvite() {
@@ -222,6 +255,11 @@ export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
               Refresh
             </button>
           </div>
+          {interviewError ? (
+            <p className="mb-3 text-sm font-bold text-red-700">
+              {interviewError}
+            </p>
+          ) : null}
           <div className="grid gap-3">
             {interviews.length === 0 ? (
               <p className="muted rounded-lg border border-dashed border-slate-300 p-5 text-sm">
@@ -229,10 +267,9 @@ export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
               </p>
             ) : (
               interviews.map((interview) => (
-                <Link
+                <article
                   key={interview.id}
-                  href={`/admin/interviews/${interview.id}`}
-                  className="grid gap-2 rounded-lg border border-slate-200 bg-white p-4 text-inherit no-underline transition hover:border-blue-300"
+                  className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -248,11 +285,30 @@ export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
                     </div>
                     <StatusBadge status={interview.status} />
                   </div>
-                  <div className="flex items-center gap-1 text-sm font-bold text-blue-700">
-                    Review
-                    <ExternalLink size={14} aria-hidden />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <Link
+                      href={`/admin/interviews/${interview.id}`}
+                      className="inline-flex items-center gap-1 text-sm font-bold text-blue-700 no-underline"
+                    >
+                      Review
+                      <ExternalLink size={14} aria-hidden />
+                    </Link>
+                    <button
+                      className="button button-secondary border-red-200 text-red-700 hover:border-red-300"
+                      type="button"
+                      onClick={() =>
+                        void deleteInterview(interview.id, interview.candidateName)
+                      }
+                      disabled={
+                        databaseUnavailable || deletingId === interview.id
+                      }
+                      aria-label={`Delete interview for ${interview.candidateName}`}
+                    >
+                      <Trash2 size={16} aria-hidden />
+                      {deletingId === interview.id ? "Deleting" : "Delete"}
+                    </button>
                   </div>
-                </Link>
+                </article>
               ))
             )}
           </div>

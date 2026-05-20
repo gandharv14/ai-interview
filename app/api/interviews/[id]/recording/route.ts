@@ -75,10 +75,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       { status: 413 },
     );
   }
-  const mimeType = (recording.type || "").toLowerCase();
+  const mimeType = normalizeRecordingMimeType(recording.type);
   if (mimeType && !ALLOWED_RECORDING_MIME_TYPES.has(mimeType)) {
     return NextResponse.json(
-      { error: `Unsupported recording content type: ${mimeType}` },
+      { error: `Unsupported recording content type: ${recording.type}` },
       { status: 415 },
     );
   }
@@ -125,4 +125,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   return NextResponse.json({ recordingPath, transcriptPath });
+}
+
+function normalizeRecordingMimeType(contentType: string) {
+  return contentType.split(";")[0]?.trim().toLowerCase() ?? "";
 }

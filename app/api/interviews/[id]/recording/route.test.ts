@@ -98,6 +98,21 @@ describe("POST /api/interviews/[id]/recording", () => {
     expect(response.status).toBe(415);
   });
 
+  it("accepts browser WebM MIME parameters", async () => {
+    const { context, cookie, interview } = await makeInterview();
+    const formData = new FormData();
+    formData.set(
+      "recording",
+      new File([new Uint8Array(1024)], "rec.webm", {
+        type: "audio/webm;codecs=opus",
+      }),
+    );
+    const response = await POST(makeRequest({ formData, cookie }), context);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.recordingPath).toBe(`${interview.id}/recording.webm`);
+  });
+
   it("rejects empty files", async () => {
     const { context, cookie } = await makeInterview();
     const formData = new FormData();

@@ -478,6 +478,30 @@ export async function listInterviews() {
   );
 }
 
+export async function deleteInterview(id: string) {
+  if (shouldUseSupabaseStore()) {
+    const supabase = requireSupabase();
+    const { data, error } = await supabase
+      .from("interviews")
+      .delete()
+      .eq("id", id)
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    return Boolean(data);
+  }
+
+  const data = await ensureLocalData();
+  const existing = data.interviews.find((interview) => interview.id === id);
+  if (!existing) return false;
+
+  data.interviews = data.interviews.filter((interview) => interview.id !== id);
+  data.events = data.events.filter((event) => event.interviewId !== id);
+  data.summaries = data.summaries.filter((summary) => summary.interviewId !== id);
+  await writeLocalData(data);
+  return true;
+}
+
 export async function appendInterviewEvents(
   interviewId: string,
   events: EventInsert[],

@@ -40,8 +40,80 @@ type ErrorResponse = {
   error?: string;
 };
 
+type PersistableInterviewEvent = {
+  source: "candidate" | "agent" | "system";
+  type: string;
+  text?: string;
+  payload?: unknown;
+};
+
+type ExtractedRealtimeTranscriptEvent = PersistableInterviewEvent & {
+  dedupeKey: string;
+};
+
+const CANDIDATE_TRANSCRIPT_EVENT_TYPE =
+  "conversation.item.input_audio_transcription.completed";
+
+const AGENT_TRANSCRIPT_EVENT_TYPES = new Set([
+  "response.audio_transcript.done",
+  "response.output_audio_transcript.done",
+  "response.output_text.done",
+  "response.content_part.done",
+  "response.output_item.done",
+  "response.done",
+]);
+
+const INITIAL_AGENT_TURN_INSTRUCTIONS =
+  "Begin the interview now. Briefly welcome the candidate, set expectations, ask the opening resume deep-dive question, then stop and wait for the candidate's answer.";
+
 export function buildRealtimeSdpUrl(model: string): string {
   return `https://api.openai.com/v1/realtime/calls?model=${encodeURIComponent(model)}`;
+}
+
+export function buildInitialRealtimeResponseEvent() {
+  return {
+    type: "response.create",
+    response: {
+      modalities: ["audio", "text"],
+      instructions: INITIAL_AGENT_TURN_INSTRUCTIONS,
+    },
+  };
+}
+
+export function buildVoiceSessionErrorMessage(message?: string) {
+  const detail = message?.trim() || "Could not start voice session";
+  return `${detail}. If the interviewer stays quiet, say "hello" into your microphone to prompt the conversation.`;
+}
+
+export function extractRealtimeTranscriptEvent(
+  event: Record<string, unknown>,
+): ExtractedRealtimeTranscriptEvent | undefined {
+  const type = String(event.type ?? "realtime_event");
+  if (type === CANDIDATE_TRANSCRIPT_EVENT_TYPE) {
+    const text = extractTranscriptText(event);
+    if (!text) return undefined;
+    return {
+      source: "candidate",
+      type,
+      text,
+      payload: event,
+      dedupeKey: buildTranscriptDedupeKey("candidate", event, text),
+    };
+  }
+
+  if (AGENT_TRANSCRIPT_EVENT_TYPES.has(type)) {
+    const text = extractTranscriptText(event);
+    if (!text) return undefined;
+    return {
+      source: "agent",
+      type,
+      text,
+      payload: event,
+      dedupeKey: buildTranscriptDedupeKey("agent", event, text),
+    };
+  }
+
+  return undefined;
 }
 
 export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
@@ -61,6 +133,8 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const stageRef = useRef<Stage>("upload");
+  const persistedTranscriptKeysRef = useRef<Set<string>>(new Set());
+  const initialAgentTurnRequestedRef = useRef(false);
 
   useEffect(() => {
     stageRef.current = stage;
@@ -156,12 +230,7 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
 
   async function persistEvents(
     interviewId: string,
-    nextEvents: Array<{
-      source: "candidate" | "agent" | "system";
-      type: string;
-      text?: string;
-      payload?: unknown;
-    }>,
+    nextEvents: PersistableInterviewEvent[],
   ) {
     const response = await fetch(`/api/interviews/${interviewId}/events`, {
       method: "POST",
@@ -198,6 +267,7 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
     }
 
     setError("");
+    initialAgentTurnRequestedRef.current = false;
     setStage("connecting");
     try {
       const tokenResponse = await fetch(
@@ -249,7 +319,7 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
         void handleRealtimeEvent(interview.id, message.data);
       });
       dc.addEventListener("open", () => {
-        dc.send(JSON.stringify({ type: "response.create" }));
+        window.setTimeout(() => requestInitialAgentTurn(dc), 300);
       });
 
       const offer = await pc.createOffer();
@@ -271,13 +341,26 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
         sdp: await sdpResponse.text(),
       });
 
+      requestInitialAgentTurn(dc);
       setStage("live");
     } catch (err) {
       await cleanupMedia();
       setRecorderReady(false);
       setStage("ready");
-      setError(err instanceof Error ? err.message : "Could not start voice session");
+      setError(
+        buildVoiceSessionErrorMessage(
+          err instanceof Error ? err.message : undefined,
+        ),
+      );
     }
+  }
+
+  function requestInitialAgentTurn(dc = dataChannelRef.current) {
+    if (!dc || dc.readyState !== "open" || initialAgentTurnRequestedRef.current) {
+      return;
+    }
+    initialAgentTurnRequestedRef.current = true;
+    dc.send(JSON.stringify(buildInitialRealtimeResponseEvent()));
   }
 
   async function handleRealtimeEvent(interviewId: string, raw: string) {
@@ -289,37 +372,23 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
     }
 
     const type = String(event.type ?? "realtime_event");
-    if (type === "conversation.item.input_audio_transcription.completed") {
-      await persistEvents(interviewId, [
-        {
-          source: "candidate",
-          type,
-          text: typeof event.transcript === "string" ? event.transcript : undefined,
-          payload: event,
-        },
-      ]);
-      return;
+    if (type === "session.created" || type === "session.updated") {
+      requestInitialAgentTurn();
     }
-    if (type === "response.audio_transcript.done") {
-      await persistEvents(interviewId, [
-        {
-          source: "agent",
-          type,
-          text: typeof event.transcript === "string" ? event.transcript : undefined,
-          payload: event,
-        },
-      ]);
-      return;
-    }
-    if (type === "response.output_text.done") {
-      await persistEvents(interviewId, [
-        {
-          source: "agent",
-          type,
-          text: typeof event.text === "string" ? event.text : undefined,
-          payload: event,
-        },
-      ]);
+
+    const transcriptEvent = extractRealtimeTranscriptEvent(event);
+    if (transcriptEvent) {
+      if (persistedTranscriptKeysRef.current.has(transcriptEvent.dedupeKey)) {
+        return;
+      }
+      persistedTranscriptKeysRef.current.add(transcriptEvent.dedupeKey);
+      const eventToPersist: PersistableInterviewEvent = {
+        source: transcriptEvent.source,
+        type: transcriptEvent.type,
+        text: transcriptEvent.text,
+        payload: transcriptEvent.payload,
+      };
+      await persistEvents(interviewId, [eventToPersist]);
       return;
     }
     if (type === "error") {
@@ -327,6 +396,7 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
         typeof event.error === "object" && event.error && "message" in event.error
           ? String((event.error as { message?: unknown }).message)
           : "Realtime error";
+      setError(buildVoiceSessionErrorMessage(message));
       await persistEvents(interviewId, [
         { source: "system", type, text: message, payload: event },
       ]);
@@ -352,7 +422,10 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
           body: formData,
           credentials: "same-origin",
         });
-        if (!upload.ok) throw new Error("Recording upload failed");
+        if (!upload.ok) {
+          const data = await readJsonResponse<{ recordingPath?: string }>(upload);
+          throw new Error(data.error || "Recording upload failed");
+        }
       }
       const complete = await fetch(`/api/interviews/${interview.id}/complete`, {
         method: "POST",
@@ -537,7 +610,7 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
                 {stage === "ready"
                   ? "Resume parsed. Voice interview is ready."
                   : stage === "live"
-                    ? "Voice interview is live."
+                    ? 'Voice interview is live. The interviewer should begin. If it stays quiet, say "hello" into your microphone.'
                     : stage === "completed"
                       ? "Interview complete."
                       : "Preparing interview session."}
@@ -668,3 +741,78 @@ function isPdfFile(file: File) {
   const type = file.type.toLowerCase();
   return file.name.toLowerCase().endsWith(".pdf") && (!type || type === "application/pdf");
 }
+
+function extractTranscriptText(value: unknown): string | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+
+  const direct =
+    getNonEmptyString(record.transcript) ??
+    getNonEmptyString(record.text) ??
+    getNonEmptyString(record.output_text);
+  if (direct) return direct;
+
+  const nested = [
+    record.part,
+    record.content_part,
+    record.item,
+    record.response,
+    record.output,
+    record.content,
+  ];
+
+  for (const item of nested) {
+    const text = extractTranscriptTextFromNestedValue(item);
+    if (text) return text;
+  }
+
+  return undefined;
+}
+
+function extractTranscriptTextFromNestedValue(value: unknown): string | undefined {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const text = extractTranscriptText(item);
+      if (text) return text;
+    }
+    return undefined;
+  }
+  return extractTranscriptText(value);
+}
+
+function buildTranscriptDedupeKey(
+  source: PersistableInterviewEvent["source"],
+  event: Record<string, unknown>,
+  text: string,
+) {
+  const response = asRecord(event.response);
+  const item = asRecord(event.item) ?? firstRecord(response?.output);
+  const responseId =
+    getNonEmptyString(event.response_id) ?? getNonEmptyString(response?.id);
+  const itemId = getNonEmptyString(event.item_id) ?? getNonEmptyString(item?.id);
+  const normalizedText = text.replace(/\s+/g, " ").trim();
+
+  return [source, responseId ?? "", itemId ?? "", normalizedText].join(":");
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function firstRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  for (const item of value) {
+    const record = asRecord(item);
+    if (record) return record;
+  }
+  return undefined;
+}
+
+function getNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+

@@ -29,6 +29,8 @@ describe("realtime prompt", () => {
 
     expect(prompt).toContain("Ada");
     expect(prompt).toContain("API Migration");
+    expect(prompt).toContain("Resume SWE Interviewer behavior");
+    expect(prompt).toContain("The candidate should do most of the talking");
     expect(prompt).toContain("Ask one question at a time");
     expect(prompt).toContain("Led API migration");
   });

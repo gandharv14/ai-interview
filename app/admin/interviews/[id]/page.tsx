@@ -21,7 +21,11 @@ type Props = {
 const EVENT_LABELS: Record<string, string> = {
   "conversation.item.input_audio_transcription.completed": "Candidate",
   "response.audio_transcript.done": "Interviewer",
+  "response.output_audio_transcript.done": "Interviewer",
   "response.output_text.done": "Interviewer",
+  "response.content_part.done": "Interviewer",
+  "response.output_item.done": "Interviewer",
+  "response.done": "Interviewer",
   resume_parsed: "Resume parsed",
   realtime_started: "Session started",
   realtime_resumed: "Session resumed",

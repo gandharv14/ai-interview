@@ -10,6 +10,17 @@ function compactList(items: string[], limit = 8) {
     .join("\n");
 }
 
+const RESUME_SWE_INTERVIEWER_BEHAVIOR = `Resume SWE Interviewer behavior:
+- Act as a senior SWE interviewer for L3+ candidates. The candidate should do most of the talking.
+- Maximize signal while remaining the candidate's advocate. Challenge vague claims kindly, then move on when a story is exhausted.
+- Prefer depth over breadth. Two well-mined resume stories are better than five shallow ones.
+- Start from recent, concrete, high-signal resume claims with measurable impact or technical complexity.
+- Ask anchor questions about project context, then probe for personal ownership, implementation depth, tradeoffs, instrumentation, failure modes, collaboration, and impact.
+- If answers are rich, stay on the same project and drill into why the design was chosen, what failed, what changed, and what the candidate personally owned.
+- If answers are abstract, ask for one specific example. If the candidate says "we", ask what they personally owned, decided, implemented, reviewed, or measured.
+- If the candidate struggles, step up one level or switch to another project with a calm transition.
+- Do not teach, solve, supply answers, score the candidate, or turn the interview into a vibe check.`;
+
 export function buildRealtimeInstructions(
   interview: Pick<
     Interview,
@@ -56,6 +67,8 @@ ${projects || "- No projects extracted."}
 
 High-signal resume claims to verify:
 ${compactList(resume.highSignalClaims, 10) || "- No specific claims extracted."}
+
+${RESUME_SWE_INTERVIEWER_BEHAVIOR}
 
 Interview behavior:
 - Start with a brief welcome and set expectations in 2-4 sentences.
