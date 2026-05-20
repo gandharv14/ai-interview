@@ -510,7 +510,16 @@ describe("CandidateInterviewFlow component shell", () => {
       if (url.startsWith("https://api.openai.com/v1/realtime/calls")) {
         return new Response("answer-sdp", { status: 200 });
       }
-      if (url === `/api/interviews/${interview.id}/recording`) {
+      if (url === `/api/interviews/${interview.id}/recording/upload-url`) {
+        return jsonResponse({
+          signedUrl: "https://storage.example/upload",
+          recordingPath: "interview_1/recording.webm",
+        });
+      }
+      if (url === "https://storage.example/upload") {
+        return new Response("{}", { status: 200 });
+      }
+      if (url === `/api/interviews/${interview.id}/recording/complete`) {
         return jsonResponse({ recordingPath: "interview_1/recording.webm" });
       }
       if (url === `/api/interviews/${interview.id}/complete`) {
@@ -551,7 +560,15 @@ describe("CandidateInterviewFlow component shell", () => {
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        `/api/interviews/${interview.id}/recording`,
+        `/api/interviews/${interview.id}/recording/upload-url`,
+        expect.objectContaining({ method: "POST" }),
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://storage.example/upload",
+        expect.objectContaining({ method: "PUT" }),
+      );
+      expect(fetchMock).toHaveBeenCalledWith(
+        `/api/interviews/${interview.id}/recording/complete`,
         expect.objectContaining({ method: "POST" }),
       );
       expect(fetchMock).toHaveBeenCalledWith(

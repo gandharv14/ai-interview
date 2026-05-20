@@ -887,6 +887,45 @@ export async function uploadRecording(
   );
 }
 
+export async function createSignedRecordingUploadUrl(
+  interviewId: string,
+  extension = "webm",
+) {
+  if (!shouldUseSupabaseStore()) return undefined;
+
+  const objectPath = `${interviewId}/recording.${extension}`;
+  const supabase = requireSupabase();
+  const { data, error } = await supabase.storage
+    .from(RECORDING_BUCKET)
+    .createSignedUploadUrl(objectPath, { upsert: true });
+  if (error) throw translateStorageError(error, RECORDING_BUCKET, objectPath);
+
+  return {
+    recordingPath: objectPath,
+    signedUrl: data.signedUrl,
+  };
+}
+
+export async function recordingObjectExists(objectPath: string) {
+  if (shouldUseSupabaseStore()) {
+    const supabase = requireSupabase();
+    const { data, error } = await supabase.storage
+      .from(RECORDING_BUCKET)
+      .exists(objectPath);
+    if (error && data !== false) {
+      throw translateStorageError(error, RECORDING_BUCKET, objectPath);
+    }
+    return data;
+  }
+
+  try {
+    await readLocalPrivateFile(RECORDING_BUCKET, objectPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function uploadTranscript(interviewId: string, content: string) {
   const file = new File([content], "transcript.json", {
     type: "application/json",

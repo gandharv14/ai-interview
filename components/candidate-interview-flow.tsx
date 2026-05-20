@@ -43,6 +43,11 @@ type ErrorResponse = {
   error?: string;
 };
 
+type RecordingUploadUrlResponse = {
+  recordingPath?: string;
+  signedUrl?: string;
+};
+
 type PersistableInterviewEvent = {
   source: "candidate" | "agent" | "system";
   type: string;
@@ -404,6 +409,12 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
 
       const recorderTools = await createRecorder(micStream);
       setRecorderReady(true);
+      if (
+        mediaRecorderRef.current &&
+        mediaRecorderRef.current.state === "inactive"
+      ) {
+        mediaRecorderRef.current.start(1000);
+      }
 
       pc.ontrack = (event) => {
         event.streams[0]?.getAudioTracks().forEach((track) => {
@@ -413,8 +424,6 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
           audioRef.current.srcObject = remoteStream;
         }
         recorderTools.connectRemote(remoteStream);
-        // Start recording only after the remote track is wired up so the
-        // first agent turn is captured into the saved file.
         if (
           mediaRecorderRef.current &&
           mediaRecorderRef.current.state === "inactive"
@@ -568,24 +577,10 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
     try {
       const recording = await stopRecording();
       await cleanupMedia();
-      if (recording.size > 0) {
-        const formData = new FormData();
-        formData.set(
-          "recording",
-          new File([recording], "interview.webm", {
-            type: recording.type || "audio/webm",
-          }),
-        );
-        const upload = await fetch(`/api/interviews/${interview.id}/recording`, {
-          method: "POST",
-          body: formData,
-          credentials: "same-origin",
-        });
-        if (!upload.ok) {
-          const data = await readJsonResponse<{ recordingPath?: string }>(upload);
-          throw new Error(data.error || "Recording upload failed");
-        }
+      if (recording.size === 0) {
+        throw new Error("Recording did not capture audio. Please try again.");
       }
+      await uploadRecordingForReview(interview.id, recording);
       const complete = await fetch(`/api/interviews/${interview.id}/complete`, {
         method: "POST",
         credentials: "same-origin",
@@ -634,11 +629,10 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
         type: "audio/webm",
       }),
     );
-    await fetch(`/api/interviews/${current.id}/recording`, {
-      method: "POST",
-      body: formData,
-      credentials: "same-origin",
-    });
+    const recording = formData.get("recording");
+    if (recording instanceof File) {
+      await uploadRecordingFileForReview(current.id, recording);
+    }
     const complete = await fetch(`/api/interviews/${current.id}/complete`, {
       method: "POST",
       credentials: "same-origin",
@@ -699,6 +693,94 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
     });
     recordedChunksRef.current = [];
     return blob;
+  }
+
+  async function uploadRecordingForReview(interviewId: string, recording: Blob) {
+    await uploadRecordingFileForReview(
+      interviewId,
+      new File([recording], "interview.webm", {
+        type: recording.type || "audio/webm",
+      }),
+    );
+  }
+
+  async function uploadRecordingFileForReview(interviewId: string, file: File) {
+    if (await uploadRecordingDirectly(interviewId, file)) return;
+
+    const formData = new FormData();
+    formData.set("recording", file);
+    const upload = await fetch(`/api/interviews/${interviewId}/recording`, {
+      method: "POST",
+      body: formData,
+      credentials: "same-origin",
+    });
+    if (!upload.ok) {
+      const data = await readJsonResponse<{ recordingPath?: string }>(upload);
+      throw new Error(data.error || "Recording upload failed");
+    }
+  }
+
+  async function uploadRecordingDirectly(interviewId: string, file: File) {
+    const uploadUrlResponse = await fetch(
+      `/api/interviews/${interviewId}/recording/upload-url`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type,
+          size: file.size,
+        }),
+        credentials: "same-origin",
+      },
+    );
+    if (uploadUrlResponse.status === 501) return false;
+
+    const uploadUrlData = await readJsonResponse<RecordingUploadUrlResponse>(
+      uploadUrlResponse,
+    );
+    if (!uploadUrlResponse.ok) {
+      throw new Error(uploadUrlData.error || "Could not prepare recording upload");
+    }
+    if (!uploadUrlData.signedUrl || !uploadUrlData.recordingPath) {
+      return false;
+    }
+
+    await uploadFileToSignedUrl(uploadUrlData.signedUrl, file);
+
+    const complete = await fetch(
+      `/api/interviews/${interviewId}/recording/complete`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recordingPath: uploadUrlData.recordingPath,
+          contentType: file.type,
+          size: file.size,
+        }),
+        credentials: "same-origin",
+      },
+    );
+    const completeData = await readJsonResponse<{ recordingPath?: string }>(
+      complete,
+    );
+    if (!complete.ok) {
+      throw new Error(completeData.error || "Could not save recording metadata");
+    }
+    return true;
+  }
+
+  async function uploadFileToSignedUrl(signedUrl: string, file: File) {
+    const formData = new FormData();
+    formData.append("cacheControl", "3600");
+    formData.append("", file);
+    const response = await fetch(signedUrl, {
+      method: "PUT",
+      body: formData,
+    });
+    if (!response.ok) {
+      throw new Error("Recording upload to storage failed");
+    }
   }
 
   return (
