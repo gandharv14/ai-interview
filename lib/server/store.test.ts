@@ -12,8 +12,10 @@ import {
   createInterview,
   createInvite,
   getInviteByTokenHash,
+  listInterviews,
   listInterviewEvents,
   saveInterviewSummary,
+  StoreSetupError,
   updateInterview,
 } from "@/lib/server/store";
 
@@ -96,5 +98,39 @@ describe("appendInterviewEvents (Supabase path)", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]).not.toHaveProperty("created_at");
     expect(rows[1]).toMatchObject({ created_at: providedAt });
+  });
+});
+
+describe("store setup errors", () => {
+  afterEach(() => {
+    supabaseAdminMock.mockReset();
+    delete process.env.NODE_ENV;
+    delete process.env.VERCEL;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  });
+
+  it("throws a typed setup error when production has no Supabase config", async () => {
+    process.env.NODE_ENV = "production";
+
+    await expect(listInterviews()).rejects.toMatchObject({
+      name: "StoreSetupError",
+      reason: "missing_supabase_config",
+      message: "Supabase env vars are required in production",
+    });
+  });
+
+  it("wraps invalid Supabase client configuration as a setup error", async () => {
+    process.env.SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "not-a-service-role-key";
+    supabaseAdminMock.mockImplementation(() => {
+      throw new Error("SUPABASE_SERVICE_ROLE_KEY is not a valid JWT.");
+    });
+
+    await expect(listInterviews()).rejects.toBeInstanceOf(StoreSetupError);
+    await expect(listInterviews()).rejects.toMatchObject({
+      reason: "invalid_supabase_config",
+      message: expect.stringContaining("SUPABASE_SERVICE_ROLE_KEY"),
+    });
   });
 });

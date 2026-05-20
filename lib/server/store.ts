@@ -117,6 +117,20 @@ type LocalStoreData = {
   summaries: InterviewSummary[];
 };
 
+export type StoreSetupErrorReason =
+  | "missing_supabase_config"
+  | "invalid_supabase_config";
+
+export class StoreSetupError extends Error {
+  reason: StoreSetupErrorReason;
+
+  constructor(reason: StoreSetupErrorReason, message: string, cause?: unknown) {
+    super(message, { cause });
+    this.name = "StoreSetupError";
+    this.reason = reason;
+  }
+}
+
 function now() {
   return new Date().toISOString();
 }
@@ -220,9 +234,21 @@ function isExpired(invite: InterviewInvite) {
 }
 
 function requireSupabase() {
-  const supabase = getSupabaseAdmin();
+  let supabase;
+  try {
+    supabase = getSupabaseAdmin();
+  } catch (error) {
+    throw new StoreSetupError(
+      "invalid_supabase_config",
+      getErrorMessage(error),
+      error,
+    );
+  }
   if (!supabase) {
-    throw new Error("Supabase is not configured");
+    throw new StoreSetupError(
+      "missing_supabase_config",
+      "Supabase is not configured",
+    );
   }
   return supabase;
 }
@@ -230,9 +256,16 @@ function requireSupabase() {
 function shouldUseSupabaseStore() {
   if (hasSupabaseConfig()) return true;
   if (isProductionRuntime()) {
-    throw new Error("Supabase env vars are required in production");
+    throw new StoreSetupError(
+      "missing_supabase_config",
+      "Supabase env vars are required in production",
+    );
   }
   return false;
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export async function createInvite(input: InviteInsert) {
