@@ -190,9 +190,10 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
 
   useEffect(() => {
     if (stage !== "live" || interviewStartedAtMs === undefined) return;
+    const startedAtMs = interviewStartedAtMs;
 
     function tick() {
-      const nextRemainingMs = calculateInterviewRemainingMs(interviewStartedAtMs);
+      const nextRemainingMs = calculateInterviewRemainingMs(startedAtMs);
       setRemainingMs(nextRemainingMs);
 
       if (nextRemainingMs <= FINAL_AGENT_ANNOUNCEMENT_MS) {
