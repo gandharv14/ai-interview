@@ -127,6 +127,9 @@ export function formatInterviewTime(ms: number): string {
 
 export function buildVoiceSessionErrorMessage(message?: string) {
   const detail = message?.trim() || "Could not start voice session";
+  if (isMicrophonePermissionError(detail)) {
+    return "Microphone permission was denied. Allow microphone access for this site in your browser settings, then click Start voice interview again.";
+  }
   return `${detail}. If the interviewer stays quiet, say "hello" into your microphone to prompt the conversation.`;
 }
 
@@ -370,6 +373,11 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
     setRemainingMs(INTERVIEW_DURATION_MS);
     setStage("connecting");
     try {
+      const micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
+      micStreamRef.current = micStream;
+
       const tokenResponse = await fetch(
         `/api/interviews/${interview.id}/realtime-token`,
         { method: "POST", credentials: "same-origin" },
@@ -392,10 +400,6 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
       const remoteStream = new MediaStream();
       remoteStreamRef.current = remoteStream;
 
-      const micStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
-      });
-      micStreamRef.current = micStream;
       micStream.getTracks().forEach((track) => pc.addTrack(track, micStream));
 
       const recorderTools = await createRecorder(micStream);
@@ -966,6 +970,16 @@ function parseInterviewStartedAtMs(startedAt?: string) {
 
 function calculateInterviewRemainingMs(startedAtMs: number, now = Date.now()) {
   return Math.max(0, INTERVIEW_DURATION_MS - (now - startedAtMs));
+}
+
+function isMicrophonePermissionError(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("permission denied") ||
+    normalized.includes("notallowederror") ||
+    normalized.includes("not allowed") ||
+    normalized.includes("permission dismissed")
+  );
 }
 
 function extractTranscriptText(value: unknown): string | undefined {

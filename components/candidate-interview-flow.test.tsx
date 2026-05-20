@@ -104,6 +104,13 @@ describe("buildVoiceSessionErrorMessage", () => {
       'say "hello"',
     );
   });
+
+  it("gives microphone permission recovery steps for permission errors", () => {
+    const message = buildVoiceSessionErrorMessage("Permission denied");
+    expect(message).toContain("Microphone permission was denied");
+    expect(message).toContain("Allow microphone access");
+    expect(message).not.toContain("say \"hello\"");
+  });
 });
 
 describe("extractRealtimeTranscriptEvent", () => {
@@ -232,6 +239,62 @@ describe("CandidateInterviewFlow component shell", () => {
     });
     expect(screen.getByRole("status")).toHaveTextContent(
       "Uploading and parsing your resume",
+    );
+  });
+
+  it("requests microphone permission before creating a realtime session", async () => {
+    const parsedResume = makeParsedResume();
+    const interview = makeInterview(parsedResume);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/interviews/start") {
+        return jsonResponse({ interview, parsedResume });
+      }
+      return jsonResponse({ events: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      mediaDevices: {
+        getUserMedia: vi.fn(async () => {
+          throw new Error("Permission denied");
+        }),
+      },
+    });
+
+    const validFormData = new FormData();
+    validFormData.set("resume", new File(["resume"], "resume.pdf", {
+      type: "application/pdf",
+    }));
+    validFormData.set("consent", "on");
+    vi.stubGlobal(
+      "FormData",
+      vi.fn(function FormDataMock() {
+        return validFormData;
+      }),
+    );
+
+    render(
+      <CandidateInterviewFlow
+        token="test-token"
+        roleTitle="Senior Engineer"
+        level="L5"
+      />,
+    );
+
+    const form = screen.getByRole("button", { name: "Continue" }).closest("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+
+    const startButton = await screen.findByRole("button", {
+      name: "Start voice interview",
+    });
+    fireEvent.click(startButton);
+
+    expect(await screen.findByText(/Microphone permission was denied/)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      `/api/interviews/${interview.id}/realtime-token`,
+      expect.anything(),
     );
   });
 
