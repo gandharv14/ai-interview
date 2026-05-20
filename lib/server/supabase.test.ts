@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   assertServiceRoleKey,
   decodeJwtRole,
   getSupabaseAdmin,
+  resolveSupabaseServiceRoleKey,
 } from "@/lib/server/supabase";
 
 function base64UrlJson(payload: Record<string, unknown>) {
@@ -20,6 +21,13 @@ function fakeJwt(payload: Record<string, unknown>) {
 }
 
 describe("supabase admin client", () => {
+  afterEach(() => {
+    delete process.env.NODE_ENV;
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    delete process.env.VERCEL;
+  });
+
   it("returns undefined when SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing", () => {
     delete process.env.SUPABASE_URL;
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -62,5 +70,25 @@ describe("supabase admin client", () => {
     );
     expect(decodeJwtRole(fakeJwt({ role: "anon" }))).toBe("anon");
     expect(decodeJwtRole("garbage")).toBeUndefined();
+  });
+
+  it("uses the local dotenv service role in development when the process has anon", () => {
+    const localServiceRoleKey = fakeJwt({ role: "service_role" });
+    process.env.NODE_ENV = "development";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = fakeJwt({ role: "anon" });
+
+    expect(resolveSupabaseServiceRoleKey(() => localServiceRoleKey)).toBe(
+      localServiceRoleKey,
+    );
+  });
+
+  it("does not override an invalid process key in production", () => {
+    const inheritedAnonKey = fakeJwt({ role: "anon" });
+    process.env.NODE_ENV = "production";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = inheritedAnonKey;
+
+    expect(
+      resolveSupabaseServiceRoleKey(() => fakeJwt({ role: "service_role" })),
+    ).toBe(inheritedAnonKey);
   });
 });
