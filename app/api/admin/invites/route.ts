@@ -7,6 +7,7 @@ import {
   hashInviteToken,
 } from "@/lib/server/security";
 import { createInvite } from "@/lib/server/store";
+import { getDatabaseSetupIssue } from "@/lib/server/store-setup";
 
 export async function POST(request: NextRequest) {
   if (!(await isAdminRequest(request))) return adminUnauthorized();
@@ -46,13 +47,29 @@ export async function POST(request: NextRequest) {
     Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000,
   ).toISOString();
 
-  const invite = await createInvite({
-    tokenHash,
-    roleTitle: input.roleTitle,
-    level: input.level,
-    jobDescription: input.jobDescription,
-    expiresAt,
-  });
+  let invite;
+  try {
+    invite = await createInvite({
+      tokenHash,
+      roleTitle: input.roleTitle,
+      level: input.level,
+      jobDescription: input.jobDescription,
+      expiresAt,
+    });
+  } catch (error) {
+    const setupIssue = getDatabaseSetupIssue(error);
+    if (setupIssue) {
+      return NextResponse.json(
+        {
+          error: setupIssue.message,
+          detail: setupIssue.detail,
+          setupIssue,
+        },
+        { status: 503 },
+      );
+    }
+    throw error;
+  }
 
   const appUrl =
     process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||

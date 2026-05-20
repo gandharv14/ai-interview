@@ -82,3 +82,9 @@ export type InterviewSummary = {
   transcriptPath?: string;
   createdAt: string;
 };
+
+export type SetupIssue = {
+  title: string;
+  message: string;
+  detail?: string;
+};

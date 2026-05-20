@@ -17,6 +17,7 @@ import { POST } from "./route";
 
 beforeEach(() => {
   isAdminRequestMock.mockReset();
+  delete process.env.NODE_ENV;
   delete process.env.SUPABASE_URL;
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
 });
@@ -93,5 +94,24 @@ describe("POST /api/admin/invites", () => {
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.inviteUrl).toMatch(/\/i\/inv_/);
+  });
+
+  it("returns setup guidance when Supabase config blocks invite creation", async () => {
+    process.env.NODE_ENV = "production";
+    isAdminRequestMock.mockResolvedValue(true);
+
+    const response = await POST(
+      makeRequest({
+        roleTitle: "Senior Backend Engineer",
+        level: "L5",
+        jobDescription: "APIs",
+        expiresInDays: 14,
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.error).toContain("Supabase");
+    expect(body.setupIssue.title).toBe("Database setup required");
   });
 });

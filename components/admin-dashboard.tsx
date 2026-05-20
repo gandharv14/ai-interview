@@ -12,23 +12,30 @@ import {
   UserRound,
 } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
-import type { Interview } from "@/lib/types";
+import type { Interview, SetupIssue } from "@/lib/types";
 
 type Props = {
   initialInterviews: Interview[];
+  setupIssue?: SetupIssue;
 };
 
 type InviteResponse = {
   inviteUrl: string;
 };
 
-export function AdminDashboard({ initialInterviews }: Props) {
+export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
   const [interviews, setInterviews] = useState(initialInterviews);
   const [inviteUrl, setInviteUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const databaseUnavailable = Boolean(setupIssue);
 
   async function createInvite(formData: FormData) {
+    if (setupIssue) {
+      setError(setupIssue.message);
+      return;
+    }
+
     setBusy(true);
     setError("");
     setInviteUrl("");
@@ -54,8 +61,17 @@ export function AdminDashboard({ initialInterviews }: Props) {
   }
 
   async function refreshInterviews() {
+    if (setupIssue) return;
+
     const response = await fetch("/api/admin/interviews");
-    const data = (await response.json()) as { interviews?: Interview[] };
+    const data = (await response.json()) as {
+      interviews?: Interview[];
+      error?: string;
+    };
+    if (!response.ok) {
+      setError(data.error || "Could not refresh interviews");
+      return;
+    }
     if (data.interviews) setInterviews(data.interviews);
   }
 
@@ -79,6 +95,27 @@ export function AdminDashboard({ initialInterviews }: Props) {
         </a>
       </header>
 
+      {setupIssue ? (
+        <section
+          className="panel mb-6 grid gap-2 border-amber-200 bg-amber-50 p-5"
+          role="alert"
+        >
+          <h2 className="text-lg font-bold text-amber-950">
+            {setupIssue.title}
+          </h2>
+          <p className="text-sm text-amber-950">{setupIssue.message}</p>
+          <p className="text-sm text-amber-950">
+            Auth0 login and the admin allowlist succeeded. Database-backed
+            actions are disabled until Supabase uses the real service_role key.
+          </p>
+          {setupIssue.detail ? (
+            <p className="rounded-lg border border-amber-200 bg-white/70 p-3 font-mono text-xs text-amber-950">
+              {setupIssue.detail}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
       <section className="grid-two">
         <form
           className="panel grid gap-4 p-5"
@@ -97,6 +134,7 @@ export function AdminDashboard({ initialInterviews }: Props) {
               name="roleTitle"
               className="input"
               placeholder="Senior Software Engineer"
+              disabled={databaseUnavailable}
               required
             />
           </div>
@@ -108,6 +146,7 @@ export function AdminDashboard({ initialInterviews }: Props) {
                 name="level"
                 className="input"
                 placeholder="L4 / Senior"
+                disabled={databaseUnavailable}
                 required
               />
             </div>
@@ -121,6 +160,7 @@ export function AdminDashboard({ initialInterviews }: Props) {
                 min="1"
                 max="90"
                 defaultValue="14"
+                disabled={databaseUnavailable}
                 required
               />
             </div>
@@ -132,11 +172,20 @@ export function AdminDashboard({ initialInterviews }: Props) {
               name="jobDescription"
               className="textarea"
               placeholder="Backend platform role focused on distributed systems, reliability, APIs..."
+              disabled={databaseUnavailable}
             />
           </div>
-          <button className="button button-primary" type="submit" disabled={busy}>
+          <button
+            className="button button-primary"
+            type="submit"
+            disabled={busy || databaseUnavailable}
+          >
             <Plus size={17} aria-hidden />
-            {busy ? "Creating" : "Create invite"}
+            {databaseUnavailable
+              ? "Database setup required"
+              : busy
+                ? "Creating"
+                : "Create invite"}
           </button>
           {error ? <p className="text-sm font-bold text-red-700">{error}</p> : null}
           {inviteUrl ? (
@@ -167,6 +216,7 @@ export function AdminDashboard({ initialInterviews }: Props) {
               className="button button-secondary"
               type="button"
               onClick={() => void refreshInterviews()}
+              disabled={databaseUnavailable}
             >
               <RefreshCw size={16} aria-hidden />
               Refresh

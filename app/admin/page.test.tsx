@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getDatabaseSetupIssue } from "@/app/admin/page";
+import { getDatabaseSetupIssue } from "@/lib/server/store-setup";
 import { StoreSetupError } from "@/lib/server/store";
 
 describe("getDatabaseSetupIssue", () => {
@@ -27,7 +27,7 @@ describe("getDatabaseSetupIssue", () => {
 
     expect(issue).toMatchObject({
       title: "Supabase configuration issue",
-      message: expect.stringContaining("service_role"),
+      message: expect.stringMatching(/Auth0 login succeeded.*service_role/s),
       detail: expect.stringContaining("SUPABASE_SERVICE_ROLE_KEY"),
     });
   });
