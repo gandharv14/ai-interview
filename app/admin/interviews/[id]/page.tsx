@@ -56,12 +56,16 @@ export default async function InterviewDetailPage({ params }: Props) {
 
   const interview = await getInterview(id);
   if (!interview) notFound();
-  const [events, summary, resumeUrl, recordingUrl] = await Promise.all([
+  const [events, summary, resumeUrl] = await Promise.all([
     listInterviewEvents(id),
     getInterviewSummary(id),
     getPrivateFileUrl(resumeBucketName(), interview.resumePath),
-    getPrivateFileUrl(recordingBucketName(), interview.recordingPath),
   ]);
+  const recordingPath = resolveRecordingPath(interview.recordingPath, events);
+  const recordingUrl = await getPrivateFileUrl(
+    recordingBucketName(),
+    recordingPath,
+  );
   const transcriptEvents = events.filter((event) => event.text);
 
   return (
@@ -201,4 +205,24 @@ function SummaryList({ title, items }: { title: string; items: string[] }) {
       )}
     </div>
   );
+}
+
+function resolveRecordingPath(
+  recordingPath: string | undefined,
+  events: InterviewEvent[],
+) {
+  if (recordingPath) return recordingPath;
+
+  for (const event of [...events].reverse()) {
+    if (event.type !== "recording_uploaded") continue;
+    const payload =
+      typeof event.payload === "object" && event.payload !== null
+        ? (event.payload as { recordingPath?: unknown })
+        : undefined;
+    if (typeof payload?.recordingPath === "string" && payload.recordingPath) {
+      return payload.recordingPath;
+    }
+  }
+
+  return undefined;
 }
