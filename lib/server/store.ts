@@ -8,6 +8,7 @@ import {
   isProductionRuntime,
 } from "@/lib/server/env";
 import { getSupabaseAdmin } from "@/lib/server/supabase";
+import { recordingObjectPath } from "@/lib/recording";
 import type {
   Interview,
   InterviewEvent,
@@ -882,7 +883,7 @@ export async function uploadRecording(
 ) {
   return uploadPrivateFile(
     RECORDING_BUCKET,
-    `${interviewId}/recording.${extension}`,
+    recordingObjectPath(interviewId, extension),
     file,
   );
 }
@@ -893,7 +894,7 @@ export async function createSignedRecordingUploadUrl(
 ) {
   if (!shouldUseSupabaseStore()) return undefined;
 
-  const objectPath = `${interviewId}/recording.${extension}`;
+  const objectPath = recordingObjectPath(interviewId, extension);
   const supabase = requireSupabase();
   const { data, error } = await supabase.storage
     .from(RECORDING_BUCKET)

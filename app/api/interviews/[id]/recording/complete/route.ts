@@ -6,7 +6,11 @@ import {
   recordingObjectExists,
   updateInterview,
 } from "@/lib/server/store";
-import { isValidRecordingPath } from "@/lib/recording";
+import {
+  isAllowedRecordingMimeType,
+  isValidRecordingPath,
+  MAX_RECORDING_BYTES,
+} from "@/lib/recording";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -44,6 +48,27 @@ export async function POST(request: NextRequest, context: RouteContext) {
       { status: 400 },
     );
   }
+  const size = Number(body.size);
+  if (!Number.isFinite(size) || size <= 0) {
+    return NextResponse.json(
+      { error: "Recording file is empty" },
+      { status: 400 },
+    );
+  }
+  if (size > MAX_RECORDING_BYTES) {
+    return NextResponse.json(
+      { error: "Recording exceeds the 200MB limit" },
+      { status: 413 },
+    );
+  }
+  const contentType =
+    typeof body.contentType === "string" ? body.contentType : "";
+  if (!isAllowedRecordingMimeType(contentType)) {
+    return NextResponse.json(
+      { error: `Unsupported recording content type: ${contentType}` },
+      { status: 415 },
+    );
+  }
 
   if (!(await recordingObjectExists(recordingPath))) {
     return NextResponse.json(
@@ -52,16 +77,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
     );
   }
 
+  if (interview.recordingPath === recordingPath) {
+    return NextResponse.json({ recordingPath });
+  }
+
   await updateInterview(id, { recordingPath });
   await appendInterviewEvents(id, [
     {
       source: "system",
       type: "recording_uploaded",
-      text: `Recording uploaded (${Math.round(Number(body.size ?? 0) / 1024)}KB).`,
+      text: `Recording uploaded (${Math.round(size / 1024)}KB).`,
       payload: {
         recordingPath,
-        contentType:
-          typeof body.contentType === "string" ? body.contentType : undefined,
+        contentType,
+        sizeBytes: size,
       },
     },
   ]);

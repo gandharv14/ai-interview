@@ -9,6 +9,7 @@ vi.mock("@/lib/server/supabase", () => ({
 
 import {
   appendInterviewEvents,
+  createSignedRecordingUploadUrl,
   createInterview,
   createInvite,
   deleteInterview,
@@ -19,6 +20,7 @@ import {
   listInterviewEvents,
   reserveInterviewForReviewer,
   REVIEW_RESERVATION_TTL_MS,
+  recordingObjectExists,
   saveInterviewSummary,
   StoreSetupError,
   submitInterviewDecision,
@@ -250,6 +252,54 @@ describe("appendInterviewEvents (Supabase path)", () => {
     expect(rows).toHaveLength(2);
     expect(rows[0]).not.toHaveProperty("created_at");
     expect(rows[1]).toMatchObject({ created_at: providedAt });
+  });
+});
+
+describe("recording storage helpers (Supabase path)", () => {
+  afterEach(() => {
+    supabaseAdminMock.mockReset();
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  });
+
+  it("creates signed recording upload URLs with a canonical object path", async () => {
+    process.env.SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
+    const createSignedUploadUrl = vi.fn().mockResolvedValue({
+      data: {
+        signedUrl: "https://storage.example/upload",
+        token: "token",
+        path: "int_1/recording.webm",
+      },
+      error: null,
+    });
+    const fromSpy = vi.fn().mockReturnValue({ createSignedUploadUrl });
+    supabaseAdminMock.mockReturnValue({ storage: { from: fromSpy } });
+
+    await expect(
+      createSignedRecordingUploadUrl("int_1", "exe"),
+    ).resolves.toEqual({
+      recordingPath: "int_1/recording.webm",
+      signedUrl: "https://storage.example/upload",
+    });
+    expect(fromSpy).toHaveBeenCalledWith("interview-recordings");
+    expect(createSignedUploadUrl).toHaveBeenCalledWith(
+      "int_1/recording.webm",
+      { upsert: true },
+    );
+  });
+
+  it("checks whether recording objects exist in storage", async () => {
+    process.env.SUPABASE_URL = "https://example.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
+    const exists = vi.fn().mockResolvedValue({ data: true, error: null });
+    const fromSpy = vi.fn().mockReturnValue({ exists });
+    supabaseAdminMock.mockReturnValue({ storage: { from: fromSpy } });
+
+    await expect(recordingObjectExists("int_1/recording.webm")).resolves.toBe(
+      true,
+    );
+    expect(exists).toHaveBeenCalledWith("int_1/recording.webm");
   });
 });
 

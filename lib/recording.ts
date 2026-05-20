@@ -20,6 +20,10 @@ const ALLOWED_RECORDING_EXTENSIONS = new Set([
   "mpeg",
 ]);
 
+export function isAllowedRecordingExtension(extension: string) {
+  return ALLOWED_RECORDING_EXTENSIONS.has(extension.toLowerCase());
+}
+
 export function normalizeRecordingMimeType(contentType: string) {
   return contentType.split(";")[0]?.trim().toLowerCase() ?? "";
 }
@@ -30,12 +34,24 @@ export function isAllowedRecordingMimeType(contentType: string) {
 }
 
 export function recordingExtensionFromFilename(filename: string) {
-  const extension = filename.split(".").pop()?.toLowerCase() ?? "";
-  return ALLOWED_RECORDING_EXTENSIONS.has(extension) ? extension : "webm";
+  const basename = filename.split(/[\\/]/).pop() ?? "";
+  const extension = basename.split(".").pop()?.toLowerCase() ?? "";
+  return isAllowedRecordingExtension(extension) ? extension : "webm";
+}
+
+export function recordingObjectPath(interviewId: string, extension = "webm") {
+  const normalizedExtension = extension.toLowerCase();
+  return `${interviewId}/recording.${
+    isAllowedRecordingExtension(normalizedExtension)
+      ? normalizedExtension
+      : "webm"
+  }`;
 }
 
 export function isValidRecordingPath(interviewId: string, recordingPath: string) {
-  if (!recordingPath.startsWith(`${interviewId}/recording.`)) return false;
-  const extension = recordingPath.split(".").pop()?.toLowerCase() ?? "";
-  return ALLOWED_RECORDING_EXTENSIONS.has(extension);
+  const [folder, filename, ...extraSegments] = recordingPath.split("/");
+  if (extraSegments.length > 0 || folder !== interviewId) return false;
+  if (!filename.startsWith("recording.")) return false;
+  const extension = filename.split(".").pop()?.toLowerCase() ?? "";
+  return isAllowedRecordingExtension(extension);
 }

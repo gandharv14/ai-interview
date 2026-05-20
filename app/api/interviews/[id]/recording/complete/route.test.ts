@@ -84,6 +84,55 @@ describe("POST /api/interviews/[id]/recording/complete", () => {
     expect(response.status).toBe(400);
   });
 
+  it("returns 400 when JSON body is malformed", async () => {
+    const { context, cookie } = await makeInterview();
+    const response = await POST(
+      makeRequest({
+        body: async () => {
+          throw new SyntaxError("bad json");
+        },
+        cookie,
+      }),
+      context,
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects nested recording paths that only look like recording files", async () => {
+    const { context, cookie, interview } = await makeInterview();
+    const response = await POST(
+      makeRequest({
+        body: {
+          recordingPath: `${interview.id}/recording.webm/evil.mp3`,
+          contentType: "audio/webm",
+          size: 1,
+        },
+        cookie,
+      }),
+      context,
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it("validates direct upload completion metadata", async () => {
+    const { context, cookie, interview } = await makeInterview();
+    const response = await POST(
+      makeRequest({
+        body: {
+          recordingPath: `${interview.id}/recording.webm`,
+          contentType: "application/octet-stream",
+          size: 1,
+        },
+        cookie,
+      }),
+      context,
+    );
+
+    expect(response.status).toBe(415);
+  });
+
   it("persists a directly uploaded recording path and event", async () => {
     const { context, cookie, interview } = await makeInterview();
     const recordingPath = await uploadRecording(
@@ -113,16 +162,45 @@ describe("POST /api/interviews/[id]/recording/complete", () => {
     const events = await listInterviewEvents(interview.id);
     expect(events.find((event) => event.type === "recording_uploaded")).toEqual(
       expect.objectContaining({
-        payload: expect.objectContaining({ recordingPath }),
+        payload: expect.objectContaining({ recordingPath, sizeBytes: 1024 }),
       }),
     );
+  });
+
+  it("is idempotent when the same recording path is completed twice", async () => {
+    const { context, cookie, interview } = await makeInterview();
+    const recordingPath = await uploadRecording(
+      interview.id,
+      new File([new Uint8Array(1024)], "recording.webm", {
+        type: "audio/webm",
+      }),
+    );
+    const body = {
+      recordingPath,
+      contentType: "audio/webm",
+      size: 1024,
+    };
+
+    expect(
+      await POST(makeRequest({ body, cookie }), context),
+    ).toMatchObject({ status: 200 });
+    expect(
+      await POST(makeRequest({ body, cookie }), context),
+    ).toMatchObject({ status: 200 });
+
+    const events = await listInterviewEvents(interview.id);
+    expect(events.filter((event) => event.type === "recording_uploaded")).toHaveLength(1);
   });
 
   it("rejects completion when the storage object is missing", async () => {
     const { context, cookie, interview } = await makeInterview();
     const response = await POST(
       makeRequest({
-        body: { recordingPath: `${interview.id}/recording.webm` },
+        body: {
+          recordingPath: `${interview.id}/recording.webm`,
+          contentType: "audio/webm",
+          size: 1024,
+        },
         cookie,
       }),
       context,

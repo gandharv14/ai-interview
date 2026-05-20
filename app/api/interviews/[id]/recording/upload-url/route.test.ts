@@ -83,6 +83,60 @@ describe("POST /api/interviews/[id]/recording/upload-url", () => {
     expect(response.status).toBe(415);
   });
 
+  it("returns 400 when JSON body is malformed", async () => {
+    const { context, cookie } = await makeInterview();
+    const response = await POST(
+      makeRequest({
+        body: async () => {
+          throw new SyntaxError("bad json");
+        },
+        cookie,
+      }),
+      context,
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects empty and oversized recording metadata", async () => {
+    const { context, cookie } = await makeInterview();
+
+    const empty = await POST(
+      makeRequest({
+        body: { filename: "interview.webm", contentType: "audio/webm", size: 0 },
+        cookie,
+      }),
+      context,
+    );
+    expect(empty.status).toBe(400);
+
+    const oversized = await POST(
+      makeRequest({
+        body: {
+          filename: "interview.webm",
+          contentType: "audio/webm",
+          size: 200 * 1024 * 1024 + 1,
+        },
+        cookie,
+      }),
+      context,
+    );
+    expect(oversized.status).toBe(413);
+  });
+
+  it("returns 404 when the interview does not exist", async () => {
+    const cookie = signCandidateSession("missing");
+    const response = await POST(
+      makeRequest({
+        body: { filename: "interview.webm", contentType: "audio/webm", size: 1 },
+        cookie,
+      }),
+      { params: Promise.resolve({ id: "missing" }) },
+    );
+
+    expect(response.status).toBe(404);
+  });
+
   it("falls back to the multipart route when Supabase storage is unavailable", async () => {
     const { context, cookie } = await makeInterview();
     const response = await POST(
