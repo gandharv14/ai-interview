@@ -18,11 +18,7 @@ const REASON_COPY: Record<
 
 export function AdminForbidden({ status }: { status: ForbiddenStatus }) {
   const isAuthSetupIssue = status.reason === "missing_auth0_config";
-  const description = isAuthSetupIssue
-    ? `Authentication is not configured for this deployment. Missing: ${
-        status.missingEnv?.join(", ") || "Auth0 environment variables"
-      }. Add the missing Auth0 environment variables in Vercel and redeploy.`
-    : REASON_COPY[status.reason];
+  const description = getForbiddenDescription(status);
 
   return (
     <main className="shell grid min-h-screen place-items-center py-8">
@@ -58,4 +54,14 @@ export function AdminForbidden({ status }: { status: ForbiddenStatus }) {
       </section>
     </main>
   );
+}
+
+function getForbiddenDescription(status: ForbiddenStatus) {
+  if (status.reason === "missing_auth0_config") {
+    return `Authentication is not configured for this deployment. Missing: ${
+      status.missingEnv?.join(", ") || "Auth0 environment variables"
+    }. Add the missing Auth0 environment variables in Vercel and redeploy.`;
+  }
+
+  return REASON_COPY[status.reason];
 }

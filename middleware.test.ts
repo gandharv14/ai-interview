@@ -39,6 +39,30 @@ describe("middleware", () => {
     expect(auth0MiddlewareMock).not.toHaveBeenCalled();
   });
 
+  it("lets the auth error page render when Auth0 config is missing", async () => {
+    delete process.env.AUTH0_DOMAIN;
+
+    const response = await middleware(
+      new Request("http://localhost/auth/error"),
+    );
+
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(auth0MiddlewareMock).not.toHaveBeenCalled();
+  });
+
+  it("redirects Auth0 routes to the error page when config is missing", async () => {
+    delete process.env.AUTH0_DOMAIN;
+
+    const response = await middleware(
+      new Request("http://localhost/auth/login?returnTo=%2Fadmin"),
+    );
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toContain("/auth/error");
+    expect(response.headers.get("location")).toContain("AUTH0_DOMAIN");
+    expect(auth0MiddlewareMock).not.toHaveBeenCalled();
+  });
+
   it("delegates to Auth0 middleware when config is present", async () => {
     auth0MiddlewareMock.mockResolvedValue(new Response(null, { status: 204 }));
 
