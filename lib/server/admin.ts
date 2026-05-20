@@ -2,13 +2,24 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
+import { getMissingAuth0ConfigKeys } from "@/lib/auth0-config";
 import { getOptionalEnv, isProductionRuntime } from "@/lib/server/env";
 
 type SessionLike = Awaited<ReturnType<typeof auth0.getSession>>;
 
 export type AdminAccessStatus =
   | { status: "unauthenticated" }
-  | { status: "forbidden"; email?: string; reason: "not_allowlisted" | "email_unverified" | "missing_allowlist" | "missing_email" }
+  | {
+      status: "forbidden";
+      email?: string;
+      reason:
+        | "not_allowlisted"
+        | "email_unverified"
+        | "missing_allowlist"
+        | "missing_email"
+        | "missing_auth0_config";
+      missingEnv?: string[];
+    }
   | { status: "authorized"; email: string };
 
 let warnedAboutMissingAllowlist = false;
@@ -62,6 +73,15 @@ function evaluateSession(session: SessionLike): AdminAccessStatus {
 export async function getAdminAccessStatus(
   request?: NextRequest,
 ): Promise<AdminAccessStatus> {
+  const missingAuth0Config = getMissingAuth0ConfigKeys();
+  if (missingAuth0Config.length > 0) {
+    return {
+      status: "forbidden",
+      reason: "missing_auth0_config",
+      missingEnv: missingAuth0Config,
+    };
+  }
+
   const session = request
     ? await auth0.getSession(request)
     : await auth0.getSession();

@@ -2,7 +2,10 @@ import type { AdminAccessStatus } from "@/lib/server/admin";
 
 type ForbiddenStatus = Extract<AdminAccessStatus, { status: "forbidden" }>;
 
-const REASON_COPY: Record<ForbiddenStatus["reason"], string> = {
+const REASON_COPY: Record<
+  Exclude<ForbiddenStatus["reason"], "missing_auth0_config">,
+  string
+> = {
   not_allowlisted:
     "Your account isn't on the admin allowlist. Ask an existing admin to add your email to AUTH0_ADMIN_EMAILS.",
   email_unverified:
@@ -14,7 +17,12 @@ const REASON_COPY: Record<ForbiddenStatus["reason"], string> = {
 };
 
 export function AdminForbidden({ status }: { status: ForbiddenStatus }) {
-  const description = REASON_COPY[status.reason];
+  const isAuthSetupIssue = status.reason === "missing_auth0_config";
+  const description = isAuthSetupIssue
+    ? `Authentication is not configured for this deployment. Missing: ${
+        status.missingEnv?.join(", ") || "Auth0 environment variables"
+      }. Add the missing Auth0 environment variables in Vercel and redeploy.`
+    : REASON_COPY[status.reason];
 
   return (
     <main className="shell grid min-h-screen place-items-center py-8">
@@ -23,23 +31,30 @@ export function AdminForbidden({ status }: { status: ForbiddenStatus }) {
           <p className="muted text-sm font-bold uppercase tracking-wide">
             Interview Agent
           </p>
-          <h1 className="mt-1 text-2xl font-bold">Access denied</h1>
-          <p className="muted mt-2 text-sm">
-            You're signed in
-            {status.email ? (
-              <>
-                {" "}as <strong>{status.email}</strong>
-              </>
-            ) : null}
-            , but you don't have permission to view the admin console.
-          </p>
+          <h1 className="mt-1 text-2xl font-bold">
+            {isAuthSetupIssue ? "Authentication setup required" : "Access denied"}
+          </h1>
+          {isAuthSetupIssue ? null : (
+            <p className="muted mt-2 text-sm">
+              {"You're signed in"}
+              {status.email ? (
+                <>
+                  {" "}
+                  as <strong>{status.email}</strong>
+                </>
+              ) : null}
+              {", but you don't have permission to view the admin console."}
+            </p>
+          )}
           <p className="muted mt-3 text-sm">{description}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <a className="button button-secondary" href="/auth/logout">
-            Sign out
-          </a>
-        </div>
+        {isAuthSetupIssue ? null : (
+          <div className="flex flex-wrap gap-2">
+            <a className="button button-secondary" href="/auth/logout">
+              Sign out
+            </a>
+          </div>
+        )}
       </section>
     </main>
   );

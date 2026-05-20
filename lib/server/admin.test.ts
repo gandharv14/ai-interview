@@ -10,6 +10,7 @@ vi.mock("@/lib/auth0", () => ({
 
 import {
   __resetAdminWarningStateForTest,
+  getAdminAccessStatus,
   isAdminRequest,
   isAdminSignedIn,
 } from "@/lib/server/admin";
@@ -28,6 +29,20 @@ afterEach(() => {
 });
 
 describe("isAdminSignedIn", () => {
+  it("reports missing Auth0 config without reading the session", async () => {
+    delete process.env.AUTH0_DOMAIN;
+    getSessionMock.mockResolvedValue({
+      user: { email: "admin@example.com", email_verified: true },
+    });
+
+    await expect(getAdminAccessStatus()).resolves.toMatchObject({
+      status: "forbidden",
+      reason: "missing_auth0_config",
+      missingEnv: ["AUTH0_DOMAIN"],
+    });
+    expect(getSessionMock).not.toHaveBeenCalled();
+  });
+
   it("returns false when there is no session", async () => {
     getSessionMock.mockResolvedValue(null);
     await expect(isAdminSignedIn()).resolves.toBe(false);
