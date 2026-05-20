@@ -43,6 +43,21 @@ describe("getDatabaseSetupIssue", () => {
     });
   });
 
+  it("maps missing review columns to the review migration setup screen", () => {
+    const issue = getDatabaseSetupIssue({
+      code: "PGRST204",
+      message:
+        "Could not find the 'reserved_by_email' column of 'interviews' in the schema cache",
+    });
+
+    expect(issue).toMatchObject({
+      title: "Database migration required",
+      message: expect.stringContaining(
+        "supabase/migrations/0002_interview_reviews.sql",
+      ),
+    });
+  });
+
   it("leaves unknown errors for the route error boundary", () => {
     expect(getDatabaseSetupIssue(new Error("boom"))).toBeUndefined();
   });

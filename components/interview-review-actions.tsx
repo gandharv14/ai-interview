@@ -47,10 +47,7 @@ export function InterviewReviewActions({
           action === "reserve" ? { action } : { action, decision },
         ),
       });
-      const data = (await response.json()) as {
-        interview?: Interview;
-        error?: string;
-      };
+      const data = await readReviewResponse(response);
       if (!response.ok) {
         if (data.interview) setInterview(data.interview);
         throw new Error(data.error || "Could not update review status");
@@ -183,4 +180,28 @@ function formatTimestamp(value: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+async function readReviewResponse(response: Response) {
+  const text = await response.text();
+  if (!text) {
+    return {
+      error: response.ok
+        ? "Review status updated, but the server returned no details."
+        : "The server returned an empty response. Refresh and try again.",
+    };
+  }
+
+  try {
+    return JSON.parse(text) as {
+      interview?: Interview;
+      error?: string;
+    };
+  } catch {
+    return {
+      error: response.ok
+        ? "Review status updated, but the server returned an unreadable response."
+        : "The server returned an unreadable response. Refresh and try again.",
+    };
+  }
 }

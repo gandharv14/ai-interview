@@ -48,7 +48,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         { status: 503 },
       );
     }
-    throw error;
+    console.error("Admin review action failed", error);
+    return NextResponse.json(
+      { error: "Could not update review status" },
+      { status: 500 },
+    );
   }
 
   if (result.ok) {

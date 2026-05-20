@@ -29,6 +29,14 @@ export function getDatabaseSetupIssue(error: unknown): SetupIssue | undefined {
     };
   }
 
+  if (isMissingReviewColumnError(error)) {
+    return {
+      title: "Database migration required",
+      message:
+        "Supabase is connected, but the review reservation columns are not available yet. Run the SQL migration in supabase/migrations/0002_interview_reviews.sql, then refresh this page.",
+    };
+  }
+
   return undefined;
 }
 
@@ -38,5 +46,22 @@ function isMissingSupabaseTableError(error: unknown) {
     error !== null &&
     "code" in error &&
     error.code === "PGRST205"
+  );
+}
+
+function isMissingReviewColumnError(error: unknown) {
+  if (typeof error !== "object" || error === null) return false;
+  const code =
+    "code" in error && typeof error.code === "string" ? error.code : undefined;
+  const message =
+    "message" in error && typeof error.message === "string"
+      ? error.message
+      : "";
+  return (
+    code === "42703" ||
+    code === "PGRST204" ||
+    /reserved_by_email|reserved_at|review_decision|reviewed_by_email|reviewed_at/i.test(
+      message,
+    )
   );
 }

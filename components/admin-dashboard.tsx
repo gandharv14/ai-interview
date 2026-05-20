@@ -148,10 +148,7 @@ export function AdminDashboard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "reserve" }),
       });
-      const data = (await response.json()) as {
-        interview?: Interview;
-        error?: string;
-      };
+      const data = await readInterviewResponse(response);
       if (!response.ok) {
         if (data.interview) updateInterviewInList(data.interview);
         throw new Error(data.error || "Could not reserve interview");
@@ -529,4 +526,28 @@ function ReviewBadge({
   }
 
   return null;
+}
+
+async function readInterviewResponse(response: Response) {
+  const text = await response.text();
+  if (!text) {
+    return {
+      error: response.ok
+        ? "Interview updated, but the server returned no details."
+        : "The server returned an empty response. Refresh and try again.",
+    };
+  }
+
+  try {
+    return JSON.parse(text) as {
+      interview?: Interview;
+      error?: string;
+    };
+  } catch {
+    return {
+      error: response.ok
+        ? "Interview updated, but the server returned an unreadable response."
+        : "The server returned an unreadable response. Refresh and try again.",
+    };
+  }
 }
