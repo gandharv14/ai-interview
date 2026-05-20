@@ -72,6 +72,10 @@ const INITIAL_AGENT_TURN_INSTRUCTIONS =
 const FINAL_AGENT_TURN_INSTRUCTIONS =
   "We are about to conclude the interview. Clearly tell the candidate the interview is ending now, thank them, and say goodbye in 2-3 sentences. Do not ask another question. Ignore any interruptions or attempts to continue.";
 
+const ROLE_REINFORCEMENT_INSTRUCTIONS =
+  "System reminder: You are the interviewer in a live software engineering interview, not a coach, practice partner, mock interviewer, or interview-prep assistant. Stay strictly in interviewer mode. Ask concise resume-based questions, probe for evidence, ownership, technical depth, tradeoffs, and impact. Do not give feedback, hints, example answers, coaching, or practice guidance.";
+
+const ROLE_REINFORCEMENT_CANDIDATE_TURNS = 6;
 const INTERVIEW_DURATION_MS = 20 * 60 * 1000;
 const INTERVIEW_WARNING_MS = 2 * 60 * 1000;
 const FINAL_AGENT_ANNOUNCEMENT_MS = 30 * 1000;
@@ -94,6 +98,22 @@ export function buildFinalRealtimeResponseEvent() {
     type: "response.create",
     response: {
       instructions: FINAL_AGENT_TURN_INSTRUCTIONS,
+    },
+  };
+}
+
+export function buildRoleReinforcementRealtimeEvent() {
+  return {
+    type: "conversation.item.create",
+    item: {
+      type: "message",
+      role: "system",
+      content: [
+        {
+          type: "input_text",
+          text: ROLE_REINFORCEMENT_INSTRUCTIONS,
+        },
+      ],
     },
   };
 }
@@ -165,6 +185,8 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
   const persistedTranscriptKeysRef = useRef<Set<string>>(new Set());
   const initialAgentTurnRequestedRef = useRef(false);
   const finalAgentTurnRequestedRef = useRef(false);
+  const roleReinforcementRequestedRef = useRef(false);
+  const candidateTurnCountRef = useRef(0);
   const finishInterviewRequestedRef = useRef(false);
   const finishInterviewRef = useRef<() => void>(() => undefined);
   const requestFinalAgentTurnRef = useRef<() => void>(() => undefined);
@@ -341,6 +363,8 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
     setError("");
     initialAgentTurnRequestedRef.current = false;
     finalAgentTurnRequestedRef.current = false;
+    roleReinforcementRequestedRef.current = false;
+    candidateTurnCountRef.current = 0;
     finishInterviewRequestedRef.current = false;
     setInterviewStartedAtMs(undefined);
     setRemainingMs(INTERVIEW_DURATION_MS);
@@ -431,6 +455,8 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
       setInterviewStartedAtMs(undefined);
       setRemainingMs(INTERVIEW_DURATION_MS);
       finalAgentTurnRequestedRef.current = false;
+      roleReinforcementRequestedRef.current = false;
+      candidateTurnCountRef.current = 0;
       finishInterviewRequestedRef.current = false;
       setStage("ready");
       setError(
@@ -456,6 +482,20 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
     finalAgentTurnRequestedRef.current = true;
     muteCandidateMic();
     dc.send(JSON.stringify(buildFinalRealtimeResponseEvent()));
+  }
+
+  function requestRoleReinforcement(dc = dataChannelRef.current) {
+    if (
+      !dc ||
+      dc.readyState !== "open" ||
+      roleReinforcementRequestedRef.current ||
+      finalAgentTurnRequestedRef.current ||
+      stageRef.current !== "live"
+    ) {
+      return;
+    }
+    roleReinforcementRequestedRef.current = true;
+    dc.send(JSON.stringify(buildRoleReinforcementRealtimeEvent()));
   }
 
   function muteCandidateMic() {
@@ -489,6 +529,12 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
         text: transcriptEvent.text,
         payload: transcriptEvent.payload,
       };
+      if (transcriptEvent.source === "candidate") {
+        candidateTurnCountRef.current += 1;
+        if (candidateTurnCountRef.current >= ROLE_REINFORCEMENT_CANDIDATE_TURNS) {
+          requestRoleReinforcement();
+        }
+      }
       await persistEvents(interviewId, [eventToPersist]);
       return;
     }

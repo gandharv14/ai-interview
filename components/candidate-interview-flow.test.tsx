@@ -14,6 +14,7 @@ import {
   buildFinalRealtimeResponseEvent,
   buildInitialRealtimeResponseEvent,
   buildRealtimeSdpUrl,
+  buildRoleReinforcementRealtimeEvent,
   buildVoiceSessionErrorMessage,
   CandidateInterviewFlow,
   extractRealtimeTranscriptEvent,
@@ -65,6 +66,27 @@ describe("buildFinalRealtimeResponseEvent", () => {
     expect(
       buildFinalRealtimeResponseEvent().response.instructions,
     ).toContain("Ignore any interruptions");
+  });
+});
+
+describe("buildRoleReinforcementRealtimeEvent", () => {
+  it("adds a system reminder that the agent is strictly an interviewer", () => {
+    expect(buildRoleReinforcementRealtimeEvent()).toMatchObject({
+      type: "conversation.item.create",
+      item: {
+        type: "message",
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text: expect.stringContaining("not a coach"),
+          },
+        ],
+      },
+    });
+    expect(
+      buildRoleReinforcementRealtimeEvent().item.content[0].text,
+    ).toContain("Stay strictly in interviewer mode");
   });
 });
 
@@ -211,6 +233,103 @@ describe("CandidateInterviewFlow component shell", () => {
     expect(screen.getByRole("status")).toHaveTextContent(
       "Uploading and parsing your resume",
     );
+  });
+
+  it("reinforces strict interviewer mode after six candidate turns", async () => {
+    const { dataChannel } = stubRealtimeBrowserApis();
+    const parsedResume = makeParsedResume();
+    const interview = makeInterview(parsedResume);
+    const liveInterview = {
+      ...interview,
+      status: "in_progress" as const,
+      startedAt: new Date().toISOString(),
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/interviews/start") {
+          return jsonResponse({ interview, parsedResume });
+        }
+        if (url === `/api/interviews/${interview.id}/realtime-token`) {
+          return jsonResponse({
+            clientSecret: "rt_secret",
+            model: "gpt-realtime-2",
+            interview: liveInterview,
+          });
+        }
+        if (url.startsWith("https://api.openai.com/v1/realtime/calls")) {
+          return new Response("answer-sdp", { status: 200 });
+        }
+        return jsonResponse({ events: [] });
+      }),
+    );
+
+    const validFormData = new FormData();
+    validFormData.set("resume", new File(["resume"], "resume.pdf", {
+      type: "application/pdf",
+    }));
+    validFormData.set("consent", "on");
+    vi.stubGlobal(
+      "FormData",
+      vi.fn(function FormDataMock() {
+        return validFormData;
+      }),
+    );
+
+    render(
+      <CandidateInterviewFlow
+        token="test-token"
+        roleTitle="Senior Engineer"
+        level="L5"
+      />,
+    );
+
+    const form = screen.getByRole("button", { name: "Continue" }).closest("form");
+    expect(form).not.toBeNull();
+    fireEvent.submit(form!);
+
+    const startButton = await screen.findByRole("button", {
+      name: "Start voice interview",
+    });
+    fireEvent.click(startButton);
+
+    await screen.findByText(/Voice interview is live/);
+    await waitFor(() => {
+      expect(dataChannel.send).toHaveBeenCalled();
+    });
+    dataChannel.send.mockClear();
+
+    for (let index = 0; index < 6; index += 1) {
+      dataChannel.emitMessage(
+        JSON.stringify({
+          type: "conversation.item.input_audio_transcription.completed",
+          item_id: `candidate_${index}`,
+          transcript: `candidate answer ${index}`,
+        }),
+      );
+    }
+
+    await waitFor(() => {
+      const sentEvents = dataChannel.send.mock.calls.map(([payload]) =>
+        JSON.parse(String(payload)),
+      );
+      const reinforcementEvents = sentEvents.filter(
+        (event) => event.type === "conversation.item.create",
+      );
+      expect(reinforcementEvents).toHaveLength(1);
+      expect(reinforcementEvents[0]).toMatchObject({
+        item: {
+          role: "system",
+          content: [
+            {
+              text: expect.stringContaining("strictly in interviewer mode"),
+            },
+          ],
+        },
+      });
+    });
   });
 
   it("shows the final timer warning and asks the agent to conclude", async () => {
@@ -441,7 +560,18 @@ function stubRealtimeBrowserApis() {
     close = vi.fn(() => {
       this.readyState = "closed";
     });
-    addEventListener = vi.fn();
+    private listeners = new Map<string, Array<(event: { data: string }) => void>>();
+    addEventListener = vi.fn(
+      (eventName: string, listener: (event: { data: string }) => void) => {
+        const listeners = this.listeners.get(eventName) ?? [];
+        listeners.push(listener);
+        this.listeners.set(eventName, listeners);
+      },
+    );
+
+    emitMessage(data: string) {
+      this.listeners.get("message")?.forEach((listener) => listener({ data }));
+    }
   }
 
   const dataChannel = new MockDataChannel();
