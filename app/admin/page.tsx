@@ -1,13 +1,17 @@
 import { redirect } from "next/navigation";
 import { AdminDashboard } from "@/components/admin-dashboard";
-import { isAdminSignedIn } from "@/lib/server/admin";
+import { AdminForbidden } from "@/components/admin-forbidden";
+import { getAdminAccessStatus } from "@/lib/server/admin";
 import { listInterviews } from "@/lib/server/store";
 
 export default async function AdminPage() {
-  const signedIn = await isAdminSignedIn();
+  const access = await getAdminAccessStatus();
 
-  if (!signedIn) {
+  if (access.status === "unauthenticated") {
     redirect("/auth/login?returnTo=%2Fadmin");
+  }
+  if (access.status === "forbidden") {
+    return <AdminForbidden status={access} />;
   }
 
   let interviews;

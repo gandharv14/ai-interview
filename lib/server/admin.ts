@@ -6,6 +6,11 @@ import { getOptionalEnv, isProductionRuntime } from "@/lib/server/env";
 
 type SessionLike = Awaited<ReturnType<typeof auth0.getSession>>;
 
+export type AdminAccessStatus =
+  | { status: "unauthenticated" }
+  | { status: "forbidden"; email?: string; reason: "not_allowlisted" | "email_unverified" | "missing_allowlist" | "missing_email" }
+  | { status: "authorized"; email: string };
+
 let warnedAboutMissingAllowlist = false;
 
 function parseAllowlist(): Set<string> {
@@ -19,8 +24,8 @@ function parseAllowlist(): Set<string> {
   );
 }
 
-function sessionPasses(session: SessionLike): boolean {
-  if (!session?.user) return false;
+function evaluateSession(session: SessionLike): AdminAccessStatus {
+  if (!session?.user) return { status: "unauthenticated" };
 
   const user = session.user as {
     email?: unknown;
@@ -28,11 +33,13 @@ function sessionPasses(session: SessionLike): boolean {
   };
   const email =
     typeof user.email === "string" ? user.email.trim().toLowerCase() : "";
-  if (!email) return false;
+  if (!email) return { status: "forbidden", reason: "missing_email" };
 
   const allowlist = parseAllowlist();
   if (allowlist.size === 0) {
-    if (isProductionRuntime()) return false;
+    if (isProductionRuntime()) {
+      return { status: "forbidden", email, reason: "missing_allowlist" };
+    }
     if (!warnedAboutMissingAllowlist) {
       warnedAboutMissingAllowlist = true;
       console.warn(
@@ -40,21 +47,35 @@ function sessionPasses(session: SessionLike): boolean {
           "This is dev/test-only behavior.",
       );
     }
-    return true;
+    return { status: "authorized", email };
   }
 
-  if (user.email_verified !== true) return false;
-  return allowlist.has(email);
+  if (user.email_verified !== true) {
+    return { status: "forbidden", email, reason: "email_unverified" };
+  }
+  if (!allowlist.has(email)) {
+    return { status: "forbidden", email, reason: "not_allowlisted" };
+  }
+  return { status: "authorized", email };
+}
+
+export async function getAdminAccessStatus(
+  request?: NextRequest,
+): Promise<AdminAccessStatus> {
+  const session = request
+    ? await auth0.getSession(request)
+    : await auth0.getSession();
+  return evaluateSession(session);
 }
 
 export async function isAdminSignedIn() {
-  const session = await auth0.getSession();
-  return sessionPasses(session);
+  const result = await getAdminAccessStatus();
+  return result.status === "authorized";
 }
 
 export async function isAdminRequest(request: NextRequest) {
-  const session = await auth0.getSession(request);
-  return sessionPasses(session);
+  const result = await getAdminAccessStatus(request);
+  return result.status === "authorized";
 }
 
 export function adminUnauthorized() {

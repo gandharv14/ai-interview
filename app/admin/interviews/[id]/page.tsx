@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, FileText, Mic, UserRound } from "lucide-react";
+import { AdminForbidden } from "@/components/admin-forbidden";
 import { StatusBadge } from "@/components/status-badge";
-import { isAdminSignedIn } from "@/lib/server/admin";
+import { getAdminAccessStatus } from "@/lib/server/admin";
 import {
   getInterview,
   getInterviewSummary,
@@ -39,10 +40,13 @@ function describeEvent(event: InterviewEvent) {
 
 export default async function InterviewDetailPage({ params }: Props) {
   const { id } = await params;
-  const signedIn = await isAdminSignedIn();
-  if (!signedIn) {
+  const access = await getAdminAccessStatus();
+  if (access.status === "unauthenticated") {
     const returnTo = encodeURIComponent(`/admin/interviews/${id}`);
     redirect(`/auth/login?returnTo=${returnTo}`);
+  }
+  if (access.status === "forbidden") {
+    return <AdminForbidden status={access} />;
   }
 
   const interview = await getInterview(id);
