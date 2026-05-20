@@ -64,32 +64,33 @@ export default async function InterviewDetailPage({ params }: Props) {
   const transcriptEvents = events.filter((event) => event.text);
 
   return (
-    <main className="shell py-8">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <Link
-            href="/admin"
-            className="mb-3 inline-flex items-center gap-2 text-sm font-bold text-blue-700 no-underline"
-          >
-            <ArrowLeft size={16} aria-hidden />
-            Back
-          </Link>
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-bold">{interview.candidateName}</h1>
-            <StatusBadge status={interview.status} />
+    <main className="shell py-8 sm:py-10">
+      <header className="panel panel-strong mb-6 p-6 sm:p-8">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <Link href="/admin" className="button button-secondary mb-5">
+              <ArrowLeft size={16} aria-hidden />
+              Back to console
+            </Link>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="page-title">{interview.candidateName}</h1>
+              <StatusBadge status={interview.status} />
+            </div>
+            <p className="muted mt-3">
+              {interview.roleTitle} · {interview.level}
+            </p>
           </div>
-          <p className="muted mt-1">
-            {interview.roleTitle} · {interview.level}
-          </p>
         </div>
       </header>
 
       <div className="grid-two">
         <section className="grid gap-4">
-          <article className="panel p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <Mic size={19} aria-hidden />
-              <h2 className="text-xl font-bold">Recording</h2>
+          <article className="panel p-5 sm:p-6">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="rounded-full border border-border bg-panel-subtle p-2">
+                <Mic size={18} aria-hidden />
+              </span>
+              <h2 className="section-title">Recording</h2>
             </div>
             {recordingUrl ? (
               <audio controls src={recordingUrl} className="w-full" />
@@ -98,10 +99,12 @@ export default async function InterviewDetailPage({ params }: Props) {
             )}
           </article>
 
-          <article className="panel p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <FileText size={19} aria-hidden />
-              <h2 className="text-xl font-bold">Transcript</h2>
+          <article className="panel p-5 sm:p-6">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="rounded-full border border-border bg-panel-subtle p-2">
+                <FileText size={18} aria-hidden />
+              </span>
+              <h2 className="section-title">Transcript</h2>
             </div>
             <div className="grid max-h-[520px] gap-3 overflow-auto">
               {transcriptEvents.length === 0 ? (
@@ -110,7 +113,7 @@ export default async function InterviewDetailPage({ params }: Props) {
                 transcriptEvents.map((event) => (
                   <div
                     key={event.id}
-                    className="rounded-lg border border-slate-200 bg-white p-3"
+                    className="card-list-item p-3"
                   >
                     <p className="text-sm font-bold">{describeEvent(event)}</p>
                     <p className="mt-1 whitespace-pre-wrap text-sm">
@@ -124,10 +127,12 @@ export default async function InterviewDetailPage({ params }: Props) {
         </section>
 
         <aside className="grid gap-4">
-          <article className="panel p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <UserRound size={19} aria-hidden />
-              <h2 className="text-xl font-bold">Resume Profile</h2>
+          <article className="panel p-5 sm:p-6">
+            <div className="mb-3 flex items-center gap-3">
+              <span className="rounded-full border border-border bg-panel-subtle p-2">
+                <UserRound size={18} aria-hidden />
+              </span>
+              <h2 className="section-title">Resume Profile</h2>
             </div>
             <p className="font-bold">
               {interview.parsedResume.candidateName || interview.candidateName}
@@ -153,8 +158,8 @@ export default async function InterviewDetailPage({ params }: Props) {
             </div>
           </article>
 
-          <article className="panel p-5">
-            <h2 className="text-xl font-bold">Reviewer Summary</h2>
+          <article className="panel p-5 sm:p-6">
+            <h2 className="section-title">Reviewer Summary</h2>
             {!summary ? (
               <p className="muted mt-3 text-sm">No summary generated.</p>
             ) : (

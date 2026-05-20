@@ -96,6 +96,25 @@ describe("POST /api/admin/invites", () => {
     expect(body.inviteUrl).toMatch(/\/i\/inv_/);
   });
 
+  it("creates multiple invite links when requested", async () => {
+    isAdminRequestMock.mockResolvedValue(true);
+    const response = await POST(
+      makeRequest({
+        roleTitle: "Senior Backend Engineer",
+        level: "L5",
+        jobDescription: "APIs",
+        expiresInDays: 14,
+        linkCount: 3,
+      }),
+    );
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.inviteUrls).toHaveLength(3);
+    expect(new Set(body.inviteUrls).size).toBe(3);
+    expect(body.inviteUrl).toBe(body.inviteUrls[0]);
+    expect(body.invites).toHaveLength(3);
+  });
+
   it("returns setup guidance when Supabase config blocks invite creation", async () => {
     process.env.NODE_ENV = "production";
     isAdminRequestMock.mockResolvedValue(true);

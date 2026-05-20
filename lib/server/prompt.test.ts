@@ -32,6 +32,7 @@ describe("realtime prompt", () => {
     expect(prompt).toContain("Resume SWE Interviewer behavior");
     expect(prompt).toContain("The candidate should do most of the talking");
     expect(prompt).toContain("Ask one question at a time");
+    expect(prompt).toContain("hard 20-minute limit");
     expect(prompt).toContain("Led API migration");
   });
 });

@@ -11,12 +11,10 @@ export default async function AuthErrorPage({ searchParams }: Props) {
 
   return (
     <main className="shell grid min-h-screen place-items-center py-8">
-      <section className="panel grid w-full max-w-md gap-4 p-6">
+      <section className="panel grid w-full max-w-md gap-4 p-6 sm:p-7">
         <div>
-          <p className="muted text-sm font-bold uppercase tracking-wide">
-            Interview Agent
-          </p>
-          <h1 className="mt-1 text-2xl font-bold">Authentication failed</h1>
+          <p className="section-kicker">Interview Agent</p>
+          <h1 className="section-title mt-2">Authentication failed</h1>
           <p className="muted mt-2 text-sm">{message}</p>
         </div>
         <a className="button button-primary" href="/auth/login?returnTo=%2Fadmin">

@@ -7,11 +7,9 @@ export default async function HomePage() {
 
   return (
     <main className="shell grid min-h-screen place-items-center py-12">
-      <section className="panel grid w-full max-w-2xl gap-5 p-7">
-        <p className="muted text-sm font-bold uppercase tracking-wide">
-          Interview Agent
-        </p>
-        <h1 className="text-3xl font-bold">
+      <section className="panel panel-strong grid w-full max-w-3xl gap-5 p-7 sm:p-9">
+        <p className="section-kicker">Interview Agent</p>
+        <h1 className="page-title">
           Resume-custom voice interviews for software engineering roles
         </h1>
         <p className="muted">
@@ -22,13 +20,13 @@ export default async function HomePage() {
         </p>
         <div className="flex flex-wrap gap-3">
           {signedIn ? (
-            <Link className="button button-primary" href="/admin">
+            <Link className="button button-secondary" href="/admin">
               Go to admin console
               <ArrowRight size={16} aria-hidden />
             </Link>
           ) : (
             <Link
-              className="button button-primary"
+              className="button button-secondary"
               href="/auth/login?returnTo=%2Fadmin"
             >
               Admin sign in

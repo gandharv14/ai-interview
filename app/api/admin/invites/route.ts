@@ -41,21 +41,28 @@ export async function POST(request: NextRequest) {
     throw error;
   }
 
-  const token = generateInviteToken();
-  const tokenHash = hashInviteToken(token);
   const expiresAt = new Date(
     Date.now() + input.expiresInDays * 24 * 60 * 60 * 1000,
   ).toISOString();
+  const appUrl =
+    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
+    request.nextUrl.origin;
 
-  let invite;
+  const createdInvites: Awaited<ReturnType<typeof createInvite>>[] = [];
+  const inviteUrls: string[] = [];
   try {
-    invite = await createInvite({
-      tokenHash,
-      roleTitle: input.roleTitle,
-      level: input.level,
-      jobDescription: input.jobDescription,
-      expiresAt,
-    });
+    for (let index = 0; index < input.linkCount; index += 1) {
+      const token = generateInviteToken();
+      const invite = await createInvite({
+        tokenHash: hashInviteToken(token),
+        roleTitle: input.roleTitle,
+        level: input.level,
+        jobDescription: input.jobDescription,
+        expiresAt,
+      });
+      createdInvites.push(invite);
+      inviteUrls.push(`${appUrl}/i/${token}`);
+    }
   } catch (error) {
     const setupIssue = getDatabaseSetupIssue(error);
     if (setupIssue) {
@@ -71,12 +78,10 @@ export async function POST(request: NextRequest) {
     throw error;
   }
 
-  const appUrl =
-    process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") ||
-    request.nextUrl.origin;
-
   return NextResponse.json({
-    invite,
-    inviteUrl: `${appUrl}/i/${token}`,
+    invite: createdInvites[0],
+    invites: createdInvites,
+    inviteUrl: inviteUrls[0],
+    inviteUrls,
   });
 }

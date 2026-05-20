@@ -1,16 +1,17 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #f7f8fa;
-  --color-foreground: #17191c;
-  --color-panel: #ffffff;
-  --color-panel-subtle: #f0f3f6;
-  --color-muted: #65707d;
-  --color-border: #d8dee6;
-  --color-primary: #155dfc;
-  --color-primary-foreground: #ffffff;
-  --color-accent: #0f8b6f;
-  --color-danger: #b42318;
+  --color-background: #e9ecef;
+  --color-foreground: #212529;
+  --color-panel: #f8f9fa;
+  --color-panel-subtle: #dee2e6;
+  --color-muted: #495057;
+  --color-border: #ced4da;
+  --color-border-strong: #adb5bd;
+  --color-primary: #212529;
+  --color-primary-foreground: #f8f9fa;
+  --color-accent: #343a40;
+  --color-danger: #343a40;
 }
 
 :root {
@@ -24,6 +25,7 @@
   --primary-foreground: var(--color-primary-foreground);
   --accent: var(--color-accent);
   --danger: var(--color-danger);
+  --border-strong: var(--color-border-strong);
 }
 
 * {
@@ -37,9 +39,13 @@ body {
 
 body {
   margin: 0;
-  background: var(--background);
+  background:
+    radial-gradient(circle at top left, #f8f9fa 0, transparent 32rem),
+    linear-gradient(180deg, #f8f9fa 0%, var(--background) 44%, #dee2e6 100%);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
 }
 
 button,
@@ -66,8 +72,104 @@ button:disabled {
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 12px 30px rgb(18 24 40 / 0.06);
+  border-radius: 18px;
+  box-shadow: 0 18px 50px rgb(33 37 41 / 0.08);
+}
+
+.panel-strong {
+  --muted: #dee2e6;
+
+  background: var(--foreground);
+  border-color: var(--foreground);
+  color: var(--primary-foreground);
+}
+
+.panel-strong .section-kicker,
+.panel-strong .page-title,
+.panel-strong .section-title {
+  color: var(--primary-foreground);
+}
+
+.panel-subtle {
+  background: var(--panel-subtle);
+  border-color: var(--border-strong);
+}
+
+.section-kicker {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.page-title {
+  color: var(--foreground);
+  font-size: clamp(2rem, 5vw, 4.25rem);
+  font-weight: 800;
+  letter-spacing: -0.055em;
+  line-height: 0.95;
+}
+
+.section-title {
+  color: var(--foreground);
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.link {
+  color: var(--foreground);
+  font-weight: 800;
+  text-decoration: none;
+  text-underline-offset: 4px;
+}
+
+.link:hover {
+  color: var(--muted);
+  text-decoration: underline;
+}
+
+.notice {
+  background: var(--panel-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  color: var(--foreground);
+}
+
+.notice-strong {
+  --muted: #dee2e6;
+
+  background: var(--foreground);
+  border: 1px solid var(--foreground);
+  border-radius: 14px;
+  color: var(--primary-foreground);
+}
+
+.card-list-item {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgb(33 37 41 / 0.05);
+}
+
+.empty-state {
+  background: var(--panel-subtle);
+  border: 1px dashed var(--border-strong);
+  border-radius: 14px;
+  color: var(--muted);
+}
+
+.stat-card {
+  background: #343a40;
+  border: 1px solid #495057;
+  border-radius: 14px;
+  color: var(--primary-foreground);
+  padding: 14px;
+}
+
+.stat-card .muted {
+  color: #dee2e6;
 }
 
 .field {
@@ -76,9 +178,9 @@ button:disabled {
 }
 
 .field label {
-  color: #29313a;
+  color: var(--foreground);
   font-size: 0.86rem;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .input,
@@ -86,18 +188,34 @@ button:disabled {
 .file-input {
   width: 100%;
   border: 1px solid var(--border);
-  border-radius: 7px;
-  background: #ffffff;
+  border-radius: 11px;
+  background: var(--panel);
   color: var(--foreground);
-  padding: 10px 12px;
+  padding: 11px 13px;
   outline: none;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    background-color 150ms ease;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: #6c757d;
 }
 
 .input:focus,
 .textarea:focus,
 .file-input:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgb(21 93 252 / 0.12);
+  border-color: var(--foreground);
+  box-shadow: 0 0 0 3px rgb(33 37 41 / 0.14);
+}
+
+.input:disabled,
+.textarea:disabled,
+.file-input:disabled {
+  background: var(--panel-subtle);
+  color: var(--muted);
 }
 
 .textarea {
@@ -112,10 +230,19 @@ button:disabled {
   justify-content: center;
   gap: 8px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 999px;
   padding: 9px 13px;
-  font-weight: 700;
+  font-weight: 800;
   text-decoration: none;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.button:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 
 .button-primary {
@@ -123,15 +250,28 @@ button:disabled {
   color: var(--primary-foreground);
 }
 
+.button-primary:hover:not(:disabled) {
+  background: #343a40;
+}
+
 .button-secondary {
-  background: #ffffff;
-  border-color: var(--border);
+  background: var(--panel);
+  border-color: var(--border-strong);
   color: var(--foreground);
+}
+
+.button-secondary:hover:not(:disabled) {
+  background: var(--panel-subtle);
+  border-color: #6c757d;
 }
 
 .button-danger {
   background: var(--danger);
-  color: #ffffff;
+  color: var(--primary-foreground);
+}
+
+.button-danger:hover:not(:disabled) {
+  background: var(--foreground);
 }
 
 .badge {
@@ -141,23 +281,33 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 4px 9px;
-  color: #29313a;
+  color: var(--foreground);
   font-size: 0.78rem;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .badge-completed {
-  border-color: rgb(15 139 111 / 0.35);
-  color: var(--accent);
+  background: var(--foreground);
+  border-color: var(--foreground);
+  color: var(--primary-foreground);
 }
 
 .badge-live {
-  border-color: rgb(21 93 252 / 0.35);
-  color: var(--primary);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--primary-foreground);
 }
 
 .badge-waiting {
-  color: #7a4b00;
+  background: var(--panel-subtle);
+  border-color: var(--border-strong);
+  color: var(--foreground);
+}
+
+.panel-strong .badge {
+  background: var(--primary-foreground);
+  border-color: var(--primary-foreground);
+  color: var(--foreground);
 }
 
 .muted {

@@ -63,6 +63,7 @@ export const createInviteSchema = z.object({
   level: z.string().trim().min(1).max(80),
   jobDescription: z.string().trim().max(8000).default(""),
   expiresInDays: z.coerce.number().int().min(1).max(90).default(14),
+  linkCount: z.coerce.number().int().min(1).max(100).default(1),
 });
 
 // Workaround: avoid `z.iso.datetime()` because Turbopack + Zod v4 produces a

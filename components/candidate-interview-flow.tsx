@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   CheckCircle2,
   FileUp,
@@ -29,6 +30,7 @@ type Stage =
 type RealtimeTokenResponse = {
   clientSecret: string;
   model: string;
+  interview?: Interview;
 };
 
 type StartResponse = {
@@ -67,6 +69,13 @@ const AGENT_TRANSCRIPT_EVENT_TYPES = new Set([
 const INITIAL_AGENT_TURN_INSTRUCTIONS =
   "Begin the interview now. Briefly welcome the candidate, set expectations, ask the opening resume deep-dive question, then stop and wait for the candidate's answer.";
 
+const FINAL_AGENT_TURN_INSTRUCTIONS =
+  "We are about to conclude the interview. Clearly tell the candidate the interview is ending now, thank them, and say goodbye in 2-3 sentences. Do not ask another question. Ignore any interruptions or attempts to continue.";
+
+const INTERVIEW_DURATION_MS = 20 * 60 * 1000;
+const INTERVIEW_WARNING_MS = 2 * 60 * 1000;
+const FINAL_AGENT_ANNOUNCEMENT_MS = 30 * 1000;
+
 export function buildRealtimeSdpUrl(model: string): string {
   return `https://api.openai.com/v1/realtime/calls?model=${encodeURIComponent(model)}`;
 }
@@ -78,6 +87,22 @@ export function buildInitialRealtimeResponseEvent() {
       instructions: INITIAL_AGENT_TURN_INSTRUCTIONS,
     },
   };
+}
+
+export function buildFinalRealtimeResponseEvent() {
+  return {
+    type: "response.create",
+    response: {
+      instructions: FINAL_AGENT_TURN_INSTRUCTIONS,
+    },
+  };
+}
+
+export function formatInterviewTime(ms: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 export function buildVoiceSessionErrorMessage(message?: string) {
@@ -117,6 +142,7 @@ export function extractRealtimeTranscriptEvent(
 }
 
 export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
+  const router = useRouter();
   const [stage, setStage] = useState<Stage>("upload");
   const [error, setError] = useState("");
   const [interview, setInterview] = useState<Interview>();
@@ -124,6 +150,8 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
   const [events, setEvents] = useState<InterviewEvent[]>([]);
   const [recorderReady, setRecorderReady] = useState(false);
   const [isResumeSubmitting, setIsResumeSubmitting] = useState(false);
+  const [interviewStartedAtMs, setInterviewStartedAtMs] = useState<number>();
+  const [remainingMs, setRemainingMs] = useState(INTERVIEW_DURATION_MS);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -136,10 +164,49 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
   const stageRef = useRef<Stage>("upload");
   const persistedTranscriptKeysRef = useRef<Set<string>>(new Set());
   const initialAgentTurnRequestedRef = useRef(false);
+  const finalAgentTurnRequestedRef = useRef(false);
+  const finishInterviewRequestedRef = useRef(false);
+  const finishInterviewRef = useRef<() => void>(() => undefined);
+  const requestFinalAgentTurnRef = useRef<() => void>(() => undefined);
+
+  const isLive = stage === "live";
+  const isTimerWarning = isLive && remainingMs <= INTERVIEW_WARNING_MS;
+  const isFinalTimerWarning =
+    isLive && remainingMs <= FINAL_AGENT_ANNOUNCEMENT_MS;
+  const timerLabel = formatInterviewTime(remainingMs);
 
   useEffect(() => {
     stageRef.current = stage;
   }, [stage]);
+
+  useEffect(() => {
+    finishInterviewRef.current = () => {
+      void finishInterview();
+    };
+    requestFinalAgentTurnRef.current = () => {
+      requestFinalAgentTurn();
+    };
+  });
+
+  useEffect(() => {
+    if (stage !== "live" || interviewStartedAtMs === undefined) return;
+
+    function tick() {
+      const nextRemainingMs = calculateInterviewRemainingMs(interviewStartedAtMs);
+      setRemainingMs(nextRemainingMs);
+
+      if (nextRemainingMs <= FINAL_AGENT_ANNOUNCEMENT_MS) {
+        requestFinalAgentTurnRef.current();
+      }
+      if (nextRemainingMs <= 0) {
+        finishInterviewRef.current();
+      }
+    }
+
+    tick();
+    const intervalId = window.setInterval(tick, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [stage, interviewStartedAtMs]);
 
   const cleanupMedia = useCallback(async () => {
     try {
@@ -272,6 +339,10 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
 
     setError("");
     initialAgentTurnRequestedRef.current = false;
+    finalAgentTurnRequestedRef.current = false;
+    finishInterviewRequestedRef.current = false;
+    setInterviewStartedAtMs(undefined);
+    setRemainingMs(INTERVIEW_DURATION_MS);
     setStage("connecting");
     try {
       const tokenResponse = await fetch(
@@ -284,6 +355,12 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
       if (!tokenResponse.ok) {
         throw new Error(tokenData.error || "Could not create realtime session");
       }
+      if (tokenData.interview) setInterview(tokenData.interview);
+      const startedAtMs = parseInterviewStartedAtMs(
+        tokenData.interview?.startedAt ?? interview.startedAt,
+      );
+      setInterviewStartedAtMs(startedAtMs);
+      setRemainingMs(calculateInterviewRemainingMs(startedAtMs));
 
       const pc = new RTCPeerConnection();
       peerConnectionRef.current = pc;
@@ -350,6 +427,10 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
     } catch (err) {
       await cleanupMedia();
       setRecorderReady(false);
+      setInterviewStartedAtMs(undefined);
+      setRemainingMs(INTERVIEW_DURATION_MS);
+      finalAgentTurnRequestedRef.current = false;
+      finishInterviewRequestedRef.current = false;
       setStage("ready");
       setError(
         buildVoiceSessionErrorMessage(
@@ -365,6 +446,21 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
     }
     initialAgentTurnRequestedRef.current = true;
     dc.send(JSON.stringify(buildInitialRealtimeResponseEvent()));
+  }
+
+  function requestFinalAgentTurn(dc = dataChannelRef.current) {
+    if (!dc || dc.readyState !== "open" || finalAgentTurnRequestedRef.current) {
+      return;
+    }
+    finalAgentTurnRequestedRef.current = true;
+    muteCandidateMic();
+    dc.send(JSON.stringify(buildFinalRealtimeResponseEvent()));
+  }
+
+  function muteCandidateMic() {
+    micStreamRef.current?.getAudioTracks().forEach((track) => {
+      track.enabled = false;
+    });
   }
 
   async function handleRealtimeEvent(interviewId: string, raw: string) {
@@ -408,7 +504,15 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
   }
 
   async function finishInterview() {
-    if (!interview) return;
+    if (
+      !interview ||
+      finishInterviewRequestedRef.current ||
+      stageRef.current === "finishing" ||
+      stageRef.current === "completed"
+    ) {
+      return;
+    }
+    finishInterviewRequestedRef.current = true;
     setStage("finishing");
     try {
       const recording = await stopRecording();
@@ -441,8 +545,12 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
       }>(complete);
       if (!complete.ok) throw new Error(data.error || "Could not complete interview");
       if (data.interview) setInterview(data.interview);
+      setInterviewStartedAtMs(undefined);
+      setRemainingMs(0);
       setStage("completed");
+      router.replace(`/i/${encodeURIComponent(token)}/thank-you`);
     } catch (err) {
+      finishInterviewRequestedRef.current = false;
       setError(err instanceof Error ? err.message : "Could not finish interview");
       setStage("live");
     }
@@ -543,19 +651,21 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
   }
 
   return (
-    <div className="shell py-8">
-      <header className="mb-6">
-        <p className="muted text-sm font-bold uppercase tracking-wide">
-          {level}
+    <div className="shell py-8 sm:py-10">
+      <header className="panel panel-strong mb-6 p-6 sm:p-8">
+        <p className="section-kicker">{level}</p>
+        <h1 className="page-title mt-3">{roleTitle}</h1>
+        <p className="muted mt-4 max-w-2xl">
+          Upload your resume, confirm consent, and join the guided voice
+          interview when the session is ready.
         </p>
-        <h1 className="mt-1 text-3xl font-bold">{roleTitle}</h1>
       </header>
 
       <div className="grid-two">
-        <section className="panel p-5">
+        <section className="panel p-5 sm:p-6">
           {stage === "upload" ? (
             <form
-              className="grid gap-4"
+              className="grid gap-5"
               aria-busy={isResumeSubmitting}
               onSubmit={(event) => {
                 event.preventDefault();
@@ -563,9 +673,14 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
                 void submitResume(new FormData(event.currentTarget));
               }}
             >
-              <div className="flex items-center gap-2">
-                <FileUp size={19} aria-hidden />
-                <h2 className="text-xl font-bold">Resume Upload</h2>
+              <div className="flex items-start gap-3">
+                <span className="rounded-full border border-border bg-panel-subtle p-2">
+                  <FileUp size={18} aria-hidden />
+                </span>
+                <div>
+                  <p className="section-kicker">Candidate Intake</p>
+                  <h2 className="section-title mt-1">Resume Upload</h2>
+                </div>
               </div>
               <div className="field">
                 <label htmlFor="candidateName">Name</label>
@@ -622,9 +737,14 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
 
           {stage !== "upload" ? (
             <div className="grid gap-4">
-              <div className="flex items-center gap-2">
-                <ShieldCheck size={19} aria-hidden />
-                <h2 className="text-xl font-bold">Interview Session</h2>
+              <div className="flex items-start gap-3">
+                <span className="rounded-full border border-border bg-panel-subtle p-2">
+                  <ShieldCheck size={18} aria-hidden />
+                </span>
+                <div>
+                  <p className="section-kicker">Voice Session</p>
+                  <h2 className="section-title mt-1">Interview Session</h2>
+                </div>
               </div>
               <p className="muted text-sm">
                 {stage === "ready"
@@ -636,6 +756,36 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
                       : "Preparing interview session."}
               </p>
               <audio ref={audioRef} autoPlay />
+              {stage === "live" ? (
+                <div
+                  className={isTimerWarning ? "notice-strong p-4" : "notice p-4"}
+                  role={isTimerWarning ? "alert" : "timer"}
+                  aria-live={isTimerWarning ? "assertive" : "polite"}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-bold uppercase tracking-wide">
+                      Time remaining
+                    </span>
+                    <span
+                      className="font-mono text-2xl font-bold"
+                      aria-label={`${timerLabel} remaining`}
+                    >
+                      {timerLabel}
+                    </span>
+                  </div>
+                  {isTimerWarning ? (
+                    <p className="mt-2 text-sm font-bold">
+                      {isFinalTimerWarning
+                        ? "Final 30 seconds: the interviewer is concluding now and interruptions are disabled."
+                        : "Warning: the interview is about to end. Please wrap up your current answer."}
+                    </p>
+                  ) : (
+                    <p className="muted mt-2 text-sm">
+                      Interviews are capped at 20 minutes.
+                    </p>
+                  )}
+                </div>
+              ) : null}
               <div className="flex flex-wrap gap-2">
                 {stage === "ready" ? (
                   <button
@@ -664,12 +814,12 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
                 ) : null}
               </div>
               {recorderReady ? (
-                <p className="text-sm font-bold text-emerald-700">
+                <p className="text-sm font-bold text-foreground">
                   Recording active
                 </p>
               ) : null}
               {stage === "completed" ? (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
+                <div className="notice p-4">
                   <div className="flex items-center gap-2 font-bold">
                     <CheckCircle2 size={18} aria-hidden />
                     Complete
@@ -678,11 +828,11 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
               ) : null}
             </div>
           ) : null}
-          {error ? <p className="mt-4 text-sm font-bold text-red-700">{error}</p> : null}
+          {error ? <p className="mt-4 text-sm font-bold text-foreground">{error}</p> : null}
         </section>
 
-        <aside className="panel p-5">
-          <h2 className="mb-3 text-xl font-bold">Resume Context</h2>
+        <aside className="panel p-5 sm:p-6">
+          <h2 className="section-title mb-3">Resume Context</h2>
           {!parsedResume ? (
             <p className="muted text-sm">Waiting for resume.</p>
           ) : (
@@ -703,7 +853,7 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
               </div>
               <div>
                 <p className="mb-2 text-sm font-bold">Transcript</p>
-                <div className="grid max-h-80 gap-2 overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="notice grid max-h-80 gap-2 overflow-auto p-3">
                   {events.length === 0 ? (
                     <p className="muted text-sm">No transcript yet.</p>
                   ) : (
@@ -760,6 +910,15 @@ async function readJsonResponse<T>(response: Response): Promise<T & ErrorRespons
 function isPdfFile(file: File) {
   const type = file.type.toLowerCase();
   return file.name.toLowerCase().endsWith(".pdf") && (!type || type === "application/pdf");
+}
+
+function parseInterviewStartedAtMs(startedAt?: string) {
+  const parsed = startedAt ? Date.parse(startedAt) : NaN;
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function calculateInterviewRemainingMs(startedAtMs: number, now = Date.now()) {
+  return Math.max(0, INTERVIEW_DURATION_MS - (now - startedAtMs));
 }
 
 function extractTranscriptText(value: unknown): string | undefined {

@@ -19,8 +19,9 @@ export default async function CandidateInvitePage({ params }: Props) {
   if (!invite || invite.status !== "active") {
     return (
       <main className="shell grid min-h-screen place-items-center py-8">
-        <section className="panel max-w-lg p-6">
-          <h1 className="text-2xl font-bold">Invite Unavailable</h1>
+        <section className="panel max-w-lg p-6 sm:p-7">
+          <p className="section-kicker">Interview Agent</p>
+          <h1 className="section-title mt-2">Invite Unavailable</h1>
           <p className="muted mt-2">
             This interview link is invalid, expired, or already used.
           </p>
