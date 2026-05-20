@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     "/api/interviews/start": [
       "./node_modules/pdf-parse/dist/worker/**/*",
       "./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs",
+      "./node_modules/@napi-rs/canvas-*/**/*",
     ],
   },
 };

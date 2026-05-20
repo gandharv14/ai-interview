@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
+    "lint": "bash scripts/check-no-secrets.sh && eslint",
     "test": "vitest",
     "test:unit": "vitest run",
     "test:e2e": "PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers playwright install chromium && PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers playwright test",
@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.20.0",
+    "@napi-rs/canvas": "0.1.80",
     "@supabase/supabase-js": "^2.89.0",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",

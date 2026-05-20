@@ -76,7 +76,29 @@ Thanks for joining. I will focus on a few projects from your resume and ask foll
 To start, can you walk me through the most recent high-signal project from your resume, focusing on the problem, your personal role, and what changed because of your work?`;
 }
 
-export function buildSummaryPrompt(interview: Interview, transcript: string) {
+function truncate(text: string, max: number) {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n[...truncated, ${text.length - max} chars omitted]`;
+}
+
+type SummaryPromptOptions = {
+  resumeMaxChars?: number;
+  transcriptMaxChars?: number;
+};
+
+export function buildSummaryPrompt(
+  interview: Interview,
+  transcript: string,
+  options: SummaryPromptOptions = {},
+) {
+  const resumeMaxChars = options.resumeMaxChars ?? 30_000;
+  const transcriptMaxChars = options.transcriptMaxChars ?? 60_000;
+  const resumeJson = truncate(
+    JSON.stringify(interview.parsedResume, null, 2),
+    resumeMaxChars,
+  );
+  const transcriptText = truncate(transcript, transcriptMaxChars);
+
   return `Create a reviewer-facing software engineering interview summary.
 
 Candidate: ${interview.candidateName}
@@ -84,10 +106,10 @@ Target role: ${interview.roleTitle}, ${interview.level}
 Role context: ${interview.jobDescription || "General software engineering role."}
 
 Resume profile:
-${JSON.stringify(interview.parsedResume, null, 2)}
+${resumeJson}
 
 Transcript/events:
-${transcript}
+${transcriptText}
 
 Return concise JSON only. Separate observed evidence from inference. Do not provide a hire/no-hire decision.`;
 }

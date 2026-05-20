@@ -18,6 +18,10 @@ import {
   ResumeFileError,
   parseResumeProfile,
 } from "@/lib/server/resume";
+import {
+  buildCandidateSessionCookie,
+  signCandidateSession,
+} from "@/lib/server/candidate-session";
 
 export const runtime = "nodejs";
 
@@ -102,29 +106,54 @@ async function startInterview(request: NextRequest) {
     parsedResume,
     resumeFilename: resume.name,
   });
-  const resumePath = await uploadResume(interview.id, resume);
-  const updated = await updateInterview(interview.id, {
-    resumePath,
-    resumeFilename: resume.name,
-  });
 
-  await updateInviteStatus(invite.id, "used");
-  await appendInterviewEvents(updated.id, [
+  let updated;
+  try {
+    const resumePath = await uploadResume(interview.id, resume);
+    updated = await updateInterview(interview.id, {
+      resumePath,
+      resumeFilename: resume.name,
+    });
+    await updateInviteStatus(invite.id, "used");
+    await appendInterviewEvents(updated.id, [
+      {
+        source: "system",
+        type: "resume_parsed",
+        text: `Resume parsed for ${candidateName}.`,
+        payload: {
+          resumeFilename: resume.name,
+          extractedCharacters: resumeText.length,
+        },
+      },
+    ]);
+  } catch (error) {
+    // Rollback: mark the half-built interview as failed so the admin can see
+    // it and the candidate can re-use the still-active invite.
+    try {
+      await updateInterview(interview.id, { status: "failed" });
+    } catch (markFailedError) {
+      console.error(
+        "Failed to mark interview as failed after start failure",
+        markFailedError,
+      );
+    }
+    throw error;
+  }
+
+  const sessionToken = signCandidateSession(updated.id);
+  const cookie = buildCandidateSessionCookie(sessionToken, updated.id);
+
+  return NextResponse.json(
     {
-      source: "system",
-      type: "resume_parsed",
-      text: `Resume parsed for ${candidateName}.`,
-      payload: {
-        resumeFilename: resume.name,
-        extractedCharacters: resumeText.length,
+      interview: updated,
+      parsedResume,
+    },
+    {
+      headers: {
+        "Set-Cookie": cookie,
       },
     },
-  ]);
-
-  return NextResponse.json({
-    interview: updated,
-    parsedResume,
-  });
+  );
 }
 
 function errorMessage(error: unknown) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
   FileUp,
@@ -40,6 +40,10 @@ type ErrorResponse = {
   error?: string;
 };
 
+export function buildRealtimeSdpUrl(model: string): string {
+  return `https://api.openai.com/v1/realtime/calls?model=${encodeURIComponent(model)}`;
+}
+
 export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
   const [stage, setStage] = useState<Stage>("upload");
   const [error, setError] = useState("");
@@ -56,6 +60,68 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
   const micStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const stageRef = useRef<Stage>("upload");
+
+  useEffect(() => {
+    stageRef.current = stage;
+  }, [stage]);
+
+  const cleanupMedia = useCallback(async () => {
+    try {
+      dataChannelRef.current?.close();
+    } catch {
+      // ignore
+    }
+    try {
+      peerConnectionRef.current?.close();
+    } catch {
+      // ignore
+    }
+    try {
+      micStreamRef.current?.getTracks().forEach((track) => track.stop());
+    } catch {
+      // ignore
+    }
+    try {
+      remoteStreamRef.current?.getTracks().forEach((track) => track.stop());
+    } catch {
+      // ignore
+    }
+    if (audioContextRef.current) {
+      try {
+        await audioContextRef.current.close();
+      } catch {
+        // ignore
+      }
+    }
+    if (audioRef.current) {
+      audioRef.current.srcObject = null;
+    }
+    dataChannelRef.current = null;
+    peerConnectionRef.current = null;
+    micStreamRef.current = null;
+    remoteStreamRef.current = null;
+    audioContextRef.current = null;
+    mediaRecorderRef.current = null;
+    setRecorderReady(false);
+  }, []);
+
+  useEffect(() => {
+    function handleBeforeUnload() {
+      if (
+        stageRef.current === "live" ||
+        stageRef.current === "connecting" ||
+        stageRef.current === "finishing"
+      ) {
+        void cleanupMedia();
+      }
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      void cleanupMedia();
+    };
+  }, [cleanupMedia]);
 
   async function submitResume(formData: FormData) {
     setError("");
@@ -76,6 +142,7 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
       const response = await fetch("/api/interviews/start", {
         method: "POST",
         body: formData,
+        credentials: "same-origin",
       });
       const data = await readJsonResponse<StartResponse>(response);
       if (!response.ok) throw new Error(data.error || "Could not start interview");
@@ -100,9 +167,27 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ events: nextEvents }),
+      credentials: "same-origin",
     });
     const data = (await response.json()) as { events?: InterviewEvent[] };
-    if (data.events) setEvents((current) => [...current, ...data.events!]);
+    const newEvents = data.events;
+    if (newEvents && newEvents.length > 0) {
+      setEvents((current) => [...current, ...newEvents]);
+    }
+  }
+
+  async function refreshEvents(interviewId: string) {
+    try {
+      const response = await fetch(`/api/interviews/${interviewId}/events`, {
+        method: "GET",
+        credentials: "same-origin",
+      });
+      if (!response.ok) return;
+      const data = (await response.json()) as { events?: InterviewEvent[] };
+      if (data.events) setEvents(data.events);
+    } catch {
+      // ignore: refresh is best-effort
+    }
   }
 
   async function startInterview() {
@@ -117,7 +202,7 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
     try {
       const tokenResponse = await fetch(
         `/api/interviews/${interview.id}/realtime-token`,
-        { method: "POST" },
+        { method: "POST", credentials: "same-origin" },
       );
       const tokenData = await readJsonResponse<
         RealtimeTokenResponse & ErrorResponse
@@ -148,6 +233,14 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
           audioRef.current.srcObject = remoteStream;
         }
         recorderTools.connectRemote(remoteStream);
+        // Start recording only after the remote track is wired up so the
+        // first agent turn is captured into the saved file.
+        if (
+          mediaRecorderRef.current &&
+          mediaRecorderRef.current.state === "inactive"
+        ) {
+          mediaRecorderRef.current.start(1000);
+        }
       };
 
       const dc = pc.createDataChannel("oai-events");
@@ -161,7 +254,7 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      const sdpResponse = await fetch("https://api.openai.com/v1/realtime/calls", {
+      const sdpResponse = await fetch(buildRealtimeSdpUrl(tokenData.model), {
         method: "POST",
         body: offer.sdp,
         headers: {
@@ -178,10 +271,10 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
         sdp: await sdpResponse.text(),
       });
 
-      mediaRecorderRef.current?.start(1000);
       setStage("live");
     } catch (err) {
       await cleanupMedia();
+      setRecorderReady(false);
       setStage("ready");
       setError(err instanceof Error ? err.message : "Could not start voice session");
     }
@@ -257,11 +350,13 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
         const upload = await fetch(`/api/interviews/${interview.id}/recording`, {
           method: "POST",
           body: formData,
+          credentials: "same-origin",
         });
         if (!upload.ok) throw new Error("Recording upload failed");
       }
       const complete = await fetch(`/api/interviews/${interview.id}/complete`, {
         method: "POST",
+        credentials: "same-origin",
       });
       const data = await readJsonResponse<{
         interview?: Interview;
@@ -306,12 +401,15 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
     await fetch(`/api/interviews/${current.id}/recording`, {
       method: "POST",
       body: formData,
+      credentials: "same-origin",
     });
     const complete = await fetch(`/api/interviews/${current.id}/complete`, {
       method: "POST",
+      credentials: "same-origin",
     });
     const data = await readJsonResponse<{ interview?: Interview }>(complete);
     if (data.interview) setInterview(data.interview);
+    await refreshEvents(current.id);
     setStage("completed");
   }
 
@@ -349,23 +447,22 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
   async function stopRecording() {
     const recorder = mediaRecorderRef.current;
     if (!recorder || recorder.state === "inactive") {
-      return new Blob([], { type: "audio/webm" });
+      const blob = new Blob(recordedChunksRef.current, {
+        type: recorder?.mimeType || "audio/webm",
+      });
+      recordedChunksRef.current = [];
+      return blob;
     }
     const stopped = new Promise<void>((resolve) => {
       recorder.addEventListener("stop", () => resolve(), { once: true });
     });
     recorder.stop();
     await stopped;
-    return new Blob(recordedChunksRef.current, { type: recorder.mimeType });
-  }
-
-  async function cleanupMedia() {
-    dataChannelRef.current?.close();
-    peerConnectionRef.current?.close();
-    micStreamRef.current?.getTracks().forEach((track) => track.stop());
-    remoteStreamRef.current?.getTracks().forEach((track) => track.stop());
-    await audioContextRef.current?.close().catch(() => undefined);
-    setRecorderReady(false);
+    const blob = new Blob(recordedChunksRef.current, {
+      type: recorder.mimeType,
+    });
+    recordedChunksRef.current = [];
+    return blob;
   }
 
   return (
@@ -504,8 +601,8 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
               <div>
                 <p className="mb-2 text-sm font-bold">Skills</p>
                 <div className="flex flex-wrap gap-2">
-                  {parsedResume.skills.slice(0, 12).map((skill) => (
-                    <span className="badge" key={skill}>
+                  {parsedResume.skills.slice(0, 12).map((skill, index) => (
+                    <span className="badge" key={`${skill}-${index}`}>
                       {skill}
                     </span>
                   ))}

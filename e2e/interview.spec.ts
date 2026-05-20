@@ -12,6 +12,7 @@ test.beforeEach(async ({ context }) => {
         sub: "auth0|e2e-admin",
         name: "E2E Admin",
         email: "admin@example.com",
+        email_verified: true,
       },
       tokenSet: {
         accessToken: "test-access-token",
@@ -89,6 +90,17 @@ test("admin creates invite and candidate completes mocked interview workflow", a
       )
       .first(),
   ).toBeVisible();
+});
+
+test("candidate-session-protected route returns 401 without the cookie", async ({
+  request,
+}) => {
+  // Use a random UUID; the session check fires before the lookup, so a 401
+  // is the right response regardless of whether the interview exists.
+  const response = await request.post(
+    "/api/interviews/00000000-0000-0000-0000-000000000000/realtime-token",
+  );
+  expect(response.status()).toBe(401);
 });
 
 test("candidate can upload a real resume PDF and reach the ready state", async ({

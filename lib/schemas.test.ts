@@ -78,4 +78,55 @@ describe("OpenAI strict json schemas", () => {
     expect(parsed.experience[0]?.endDate).toBeUndefined();
     expect(parsed.projects[0]?.impact).toBeUndefined();
   });
+
+  it("downgrades malformed email/phone strings to undefined instead of throwing", () => {
+    const parsed = parsedResumeSchema.parse({
+      candidateName: "Ada",
+      email: "ada at example dot com",
+      phone: "call me",
+      headline: "",
+      skills: [],
+      experience: [],
+      projects: [],
+      education: [],
+      highSignalClaims: [],
+    });
+
+    expect(parsed.email).toBeUndefined();
+    expect(parsed.phone).toBeUndefined();
+  });
+
+  it("preserves valid emails and phones", () => {
+    const parsed = parsedResumeSchema.parse({
+      candidateName: "Ada",
+      email: "  Ada@Example.com  ",
+      phone: "(555) 123-4567",
+      headline: "",
+      skills: [],
+      experience: [],
+      projects: [],
+      education: [],
+      highSignalClaims: [],
+    });
+
+    expect(parsed.email).toBe("Ada@Example.com");
+    expect(parsed.phone).toBe("(555) 123-4567");
+  });
+
+  it("treats empty strings as undefined for email and phone", () => {
+    const parsed = parsedResumeSchema.parse({
+      candidateName: null,
+      email: "",
+      phone: "  ",
+      headline: "",
+      skills: [],
+      experience: [],
+      projects: [],
+      education: [],
+      highSignalClaims: [],
+    });
+
+    expect(parsed.email).toBeUndefined();
+    expect(parsed.phone).toBeUndefined();
+  });
 });

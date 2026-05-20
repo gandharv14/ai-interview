@@ -7,8 +7,8 @@ export type InterviewEventSource = "candidate" | "agent" | "system";
 export type ResumeExperience = {
   company: string;
   title: string;
-  startDate?: string | null;
-  endDate?: string | null;
+  startDate?: string;
+  endDate?: string;
   highlights: string[];
 };
 
@@ -16,13 +16,13 @@ export type ResumeProject = {
   name: string;
   description: string;
   technologies: string[];
-  impact?: string | null;
+  impact?: string;
 };
 
 export type ParsedResume = {
-  candidateName?: string | null;
-  email?: string | null;
-  phone?: string | null;
+  candidateName?: string;
+  email?: string;
+  phone?: string;
   headline: string;
   skills: string[];
   experience: ResumeExperience[];
@@ -81,12 +81,4 @@ export type InterviewSummary = {
   followUpQuestions: string[];
   transcriptPath?: string;
   createdAt: string;
-};
-
-export type InterviewDetail = {
-  interview: Interview;
-  events: InterviewEvent[];
-  summary?: InterviewSummary;
-  resumeUrl?: string;
-  recordingUrl?: string;
 };

@@ -11,10 +11,31 @@ import {
   recordingBucketName,
   resumeBucketName,
 } from "@/lib/server/store";
+import type { InterviewEvent } from "@/lib/types";
 
 type Props = {
   params: Promise<{ id: string }>;
 };
+
+const EVENT_LABELS: Record<string, string> = {
+  "conversation.item.input_audio_transcription.completed": "Candidate",
+  "response.audio_transcript.done": "Interviewer",
+  "response.output_text.done": "Interviewer",
+  resume_parsed: "Resume parsed",
+  realtime_started: "Session started",
+  realtime_resumed: "Session resumed",
+  recording_uploaded: "Recording uploaded",
+  diarized_transcript: "Diarized transcript",
+  diarized_transcript_failed: "Diarized transcript failed",
+  interview_completed: "Interview completed",
+  mock_realtime_started: "Mock session started",
+};
+
+function describeEvent(event: InterviewEvent) {
+  const label = EVENT_LABELS[event.type];
+  if (label) return label;
+  return `${event.source} · ${event.type}`;
+}
 
 export default async function InterviewDetailPage({ params }: Props) {
   const { id } = await params;
@@ -32,6 +53,7 @@ export default async function InterviewDetailPage({ params }: Props) {
     getPrivateFileUrl(resumeBucketName(), interview.resumePath),
     getPrivateFileUrl(recordingBucketName(), interview.recordingPath),
   ]);
+  const transcriptEvents = events.filter((event) => event.text);
 
   return (
     <main className="shell py-8">
@@ -74,24 +96,20 @@ export default async function InterviewDetailPage({ params }: Props) {
               <h2 className="text-xl font-bold">Transcript</h2>
             </div>
             <div className="grid max-h-[520px] gap-3 overflow-auto">
-              {events.filter((event) => event.text).length === 0 ? (
+              {transcriptEvents.length === 0 ? (
                 <p className="muted text-sm">No transcript events saved.</p>
               ) : (
-                events
-                  .filter((event) => event.text)
-                  .map((event) => (
-                    <div
-                      key={event.id}
-                      className="rounded-lg border border-slate-200 bg-white p-3"
-                    >
-                      <p className="text-sm font-bold capitalize">
-                        {event.source} · {event.type}
-                      </p>
-                      <p className="mt-1 whitespace-pre-wrap text-sm">
-                        {event.text}
-                      </p>
-                    </div>
-                  ))
+                transcriptEvents.map((event) => (
+                  <div
+                    key={event.id}
+                    className="rounded-lg border border-slate-200 bg-white p-3"
+                  >
+                    <p className="text-sm font-bold">{describeEvent(event)}</p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm">
+                      {event.text}
+                    </p>
+                  </div>
+                ))
               )}
             </div>
           </article>
@@ -119,8 +137,8 @@ export default async function InterviewDetailPage({ params }: Props) {
               </a>
             ) : null}
             <div className="mt-4 flex flex-wrap gap-2">
-              {interview.parsedResume.skills.slice(0, 16).map((skill) => (
-                <span className="badge" key={skill}>
+              {interview.parsedResume.skills.slice(0, 16).map((skill, index) => (
+                <span className="badge" key={`${skill}-${index}`}>
                   {skill}
                 </span>
               ))}
@@ -157,8 +175,8 @@ function SummaryList({ title, items }: { title: string; items: string[] }) {
         <p className="muted">None captured.</p>
       ) : (
         <ul className="grid gap-2 pl-5">
-          {items.map((item) => (
-            <li key={item}>{item}</li>
+          {items.map((item, index) => (
+            <li key={`${title}-${index}`}>{item}</li>
           ))}
         </ul>
       )}

@@ -20,6 +20,12 @@ export function getTranscribeModel() {
   return process.env.OPENAI_TRANSCRIBE_MODEL ?? "gpt-4o-transcribe-diarize";
 }
 
+export function getRealtimeTranscribeModel() {
+  return (
+    process.env.OPENAI_REALTIME_TRANSCRIBE_MODEL ?? "gpt-realtime-whisper"
+  );
+}
+
 export function getOptionalEnv(name: string) {
   const value = process.env[name];
   return value && value.trim().length > 0 ? value : undefined;

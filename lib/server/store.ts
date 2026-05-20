@@ -124,10 +124,7 @@ function now() {
 function localStorePath() {
   const configuredPath =
     process.env.INTERVIEW_AGENT_STORE_FILE ?? ".local-data/store.json";
-  return path.resolve(
-    /* turbopackIgnore: true */ process.cwd(),
-    configuredPath,
-  );
+  return path.resolve(process.cwd(), configuredPath);
 }
 
 function localUploadRoot() {
@@ -633,7 +630,7 @@ export async function getPrivateFileUrl(bucket: string, objectPath?: string) {
     const supabase = requireSupabase();
     const { data, error } = await supabase.storage
       .from(bucket)
-      .createSignedUrl(objectPath, 60 * 20);
+      .createSignedUrl(objectPath, 60 * 60);
     if (error) throw error;
     return data.signedUrl;
   }

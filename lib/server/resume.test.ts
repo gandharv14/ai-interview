@@ -1,7 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractResumeText, parseResumeProfile } from "@/lib/server/resume";
 import { parsedResumeJsonSchema } from "@/lib/schemas";
-import { createPdfFixture } from "@/test/fixtures/pdf";
+import {
+  createMultiPagePdfFixture,
+  createPdfFixture,
+} from "@/test/fixtures/pdf";
+
+beforeEach(() => {
+  delete process.env.NODE_ENV;
+  delete process.env.VERCEL;
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("resume parsing", () => {
   it("extracts PDF files and builds a local heuristic profile without an API key", async () => {
@@ -9,6 +21,7 @@ describe("resume parsing", () => {
     const file = new File(
       [createPdfFixture([
         "Ada Lovelace",
+        "Senior Software Engineer building distributed systems.",
         "ada@example.com",
         "Built React and Node systems. Led API migration that reduced latency.",
       ])],
@@ -17,22 +30,38 @@ describe("resume parsing", () => {
     );
 
     const text = await extractResumeText(file);
-    const [{ PDFParse }, { getPath: getPdfWorkerPath }] = await Promise.all([
-      import("pdf-parse"),
-      import("pdf-parse/worker"),
-    ]);
     const profile = await parseResumeProfile(text, {
       roleTitle: "Software Engineer",
       level: "L4",
       jobDescription: "",
     });
 
-    expect(PDFParse.setWorker()).toBe(getPdfWorkerPath());
     expect(text).toContain("Ada Lovelace");
     expect(profile.candidateName).toBe("Ada Lovelace");
     expect(profile.email).toBe("ada@example.com");
     expect(profile.skills).toContain("React");
     expect(profile.highSignalClaims[0]).toContain("Led API migration");
+    // Headline should not be the email line.
+    expect(profile.headline).not.toContain("@");
+  });
+
+  it("separates pages with a blank line in extracted text", async () => {
+    const file = new File(
+      [
+        createMultiPagePdfFixture([
+          ["Page one heading", "Body paragraph for page one."],
+          ["Page two heading", "Body paragraph for page two."],
+        ]),
+      ],
+      "resume.pdf",
+      { type: "application/pdf" },
+    );
+
+    const text = await extractResumeText(file);
+    expect(text).toContain("Page one heading");
+    expect(text).toContain("Page two heading");
+    // Pages must be separated by at least one newline so words don't glue.
+    expect(text).toMatch(/page one\.\s+Page two heading/i);
   });
 
   it("installs PDF runtime globals when Node does not provide DOMMatrix", async () => {
@@ -139,6 +168,19 @@ describe("resume parsing", () => {
     await expect(
       extractResumeText(new File(["not a pdf"], "resume.pdf", { type: "application/pdf" })),
     ).rejects.toThrow("Resume must be a valid PDF file.");
+  });
+
+  it("fails closed in production when OPENAI_API_KEY is missing", async () => {
+    process.env.NODE_ENV = "production";
+    delete process.env.OPENAI_API_KEY;
+
+    await expect(
+      parseResumeProfile("Some resume text", {
+        roleTitle: "Engineer",
+        level: "L4",
+        jobDescription: "",
+      }),
+    ).rejects.toThrow(/OPENAI_API_KEY in production/);
   });
 });
 

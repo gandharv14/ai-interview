@@ -5,6 +5,32 @@ const nullableString = z
   .optional()
   .transform((value) => (value == null ? undefined : value));
 
+// LLM-friendly: accept any string or null. Validate the result and downgrade
+// junk to undefined rather than throwing. This keeps a single bad-formatted
+// email or phone from torpedoing the whole resume parse.
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const looseEmail = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((value) => {
+    if (value == null) return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    return EMAIL_REGEX.test(trimmed) ? trimmed : undefined;
+  });
+
+const loosePhone = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((value) => {
+    if (value == null) return undefined;
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    // Need at least 7 digits to be a plausible phone number; otherwise drop it.
+    const digits = trimmed.replace(/\D+/g, "");
+    return digits.length >= 7 ? trimmed : undefined;
+  });
+
 export const resumeExperienceSchema = z.object({
   company: z.string().default(""),
   title: z.string().default(""),
@@ -22,11 +48,8 @@ export const resumeProjectSchema = z.object({
 
 export const parsedResumeSchema = z.object({
   candidateName: nullableString,
-  email: z
-    .union([z.string().email(), z.string().length(0), z.null()])
-    .optional()
-    .transform((value) => (value ? value : undefined)),
-  phone: nullableString,
+  email: looseEmail,
+  phone: loosePhone,
   headline: z.string().default(""),
   skills: z.array(z.string()).default([]),
   experience: z.array(resumeExperienceSchema).default([]),
@@ -42,12 +65,21 @@ export const createInviteSchema = z.object({
   expiresInDays: z.coerce.number().int().min(1).max(90).default(14),
 });
 
+// Workaround: avoid `z.iso.datetime()` because Turbopack + Zod v4 produces a
+// TDZ error when bundling `z.iso.*` chunks with our route handlers. Plain
+// regex validation has the same intent (RFC 3339-like ISO timestamp).
+const ISO_DATETIME_REGEX =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+
 export const interviewEventInputSchema = z.object({
   source: z.enum(["candidate", "agent", "system"]),
   type: z.string().trim().min(1).max(120),
   text: z.string().trim().max(20_000).optional(),
   payload: z.unknown().optional(),
-  createdAt: z.string().datetime().optional(),
+  createdAt: z
+    .string()
+    .regex(ISO_DATETIME_REGEX, "Must be an ISO 8601 datetime")
+    .optional(),
 });
 
 export const interviewEventBatchSchema = z.object({

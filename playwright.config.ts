@@ -7,6 +7,7 @@ const auth0Secret =
 
 export default defineConfig({
   testDir: "./e2e",
+  globalSetup: "./e2e/global-setup.ts",
   timeout: 60_000,
   expect: {
     timeout: 10_000,
@@ -29,6 +30,7 @@ export default defineConfig({
       AUTH0_CLIENT_ID: "test-client-id",
       AUTH0_CLIENT_SECRET: "test-client-secret",
       AUTH0_SECRET: auth0Secret,
+      AUTH0_ADMIN_EMAILS: "admin@example.com",
       APP_BASE_URL: "http://localhost:3100",
       INTERVIEW_AGENT_STORE_FILE: storePath,
       NEXT_PUBLIC_APP_URL: "http://localhost:3100",

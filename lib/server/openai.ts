@@ -4,6 +4,7 @@ import OpenAI, { toFile } from "openai";
 import {
   getOptionalEnv,
   getRealtimeModel,
+  getRealtimeTranscribeModel,
   getTextModel,
   getTranscribeModel,
 } from "@/lib/server/env";
@@ -44,11 +45,10 @@ export async function mintRealtimeClientSecret(interview: Interview) {
             },
             interview.parsedResume,
           ),
-          reasoning: { effort: "low" },
           audio: {
             input: {
               transcription: {
-                model: "gpt-realtime-whisper",
+                model: getRealtimeTranscribeModel(),
               },
               turn_detection: {
                 type: "semantic_vad",
@@ -84,15 +84,26 @@ export async function mintRealtimeClientSecret(interview: Interview) {
   };
 }
 
+const MAX_RESUME_PROMPT_CHARS = 30_000;
+const MAX_TRANSCRIPT_PROMPT_CHARS = 60_000;
+
+function truncate(text: string, max: number) {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n[...truncated, ${text.length - max} chars omitted]`;
+}
+
 export async function summarizeInterview(
   interview: Interview,
   events: InterviewEvent[],
 ): Promise<Omit<InterviewSummary, "id" | "interviewId" | "createdAt">> {
   const apiKey = getOptionalEnv("OPENAI_API_KEY");
-  const transcript = events
-    .filter((event) => event.text)
-    .map((event) => `[${event.source}] ${event.text}`)
-    .join("\n");
+  const transcript = truncate(
+    events
+      .filter((event) => event.text)
+      .map((event) => `[${event.source}] ${event.text}`)
+      .join("\n"),
+    MAX_TRANSCRIPT_PROMPT_CHARS,
+  );
 
   if (!apiKey) {
     return {
@@ -129,7 +140,10 @@ export async function summarizeInterview(
           content: [
             {
               type: "input_text",
-              text: buildSummaryPrompt(interview, transcript),
+              text: buildSummaryPrompt(interview, transcript, {
+                resumeMaxChars: MAX_RESUME_PROMPT_CHARS,
+                transcriptMaxChars: MAX_TRANSCRIPT_PROMPT_CHARS,
+              }),
             },
           ],
         },
@@ -172,10 +186,14 @@ export async function transcribeRecordingIfSmall(file: File) {
   const upload = await toFile(buffer, file.name || "interview.webm", {
     type: file.type || "audio/webm",
   });
+  const model = getTranscribeModel();
+  const isDiarize = /diarize/i.test(model);
   const transcription = await client.audio.transcriptions.create({
     file: upload,
-    model: getTranscribeModel(),
-    response_format: "json",
+    model,
+    response_format: isDiarize
+      ? ("diarized_json" as unknown as "json")
+      : "json",
   });
 
   return JSON.stringify(transcription, null, 2);

@@ -1,6 +1,10 @@
 import "server-only";
 
-import { getOptionalEnv, getTextModel } from "@/lib/server/env";
+import {
+  getOptionalEnv,
+  getTextModel,
+  isProductionRuntime,
+} from "@/lib/server/env";
 import {
   parsedResumeJsonSchema,
   parsedResumeSchema,
@@ -39,7 +43,7 @@ export async function extractResumeText(file: File) {
   try {
     const parsed = await parser.getText({
       cellSeparator: " ",
-      pageJoiner: "",
+      pageJoiner: "\n\n",
     });
     const text = normalizeText(parsed.text);
     if (!text) {
@@ -68,6 +72,11 @@ export async function parseResumeProfile(
 ): Promise<ParsedResume> {
   const apiKey = getOptionalEnv("OPENAI_API_KEY");
   if (!apiKey) {
+    if (isProductionRuntime()) {
+      throw new Error(
+        "Resume parsing requires OPENAI_API_KEY in production. Configure the env var or rotate the key, then redeploy.",
+      );
+    }
     return heuristicResumeProfile(resumeText);
   }
 
@@ -184,11 +193,18 @@ function heuristicResumeProfile(text: string): ParsedResume {
     )
     .slice(0, 8);
 
+  // Build the headline from lines 2-5 that are not just contact info / email.
+  const headlineCandidates = lines
+    .slice(1, 8)
+    .filter((line) => !line.includes("@") && line.length > 8)
+    .slice(0, 3);
+
   return {
     candidateName,
     email,
     phone,
-    headline: lines.slice(1, 4).join(" ") || "Software engineering candidate",
+    headline:
+      headlineCandidates.join(" ") || "Software engineering candidate",
     skills,
     experience: [],
     projects: highSignalClaims.slice(0, 4).map((claim, index) => ({
