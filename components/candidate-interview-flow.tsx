@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   CheckCircle2,
   FileUp,
+  Loader2,
   Mic,
   PhoneOff,
   Send,
@@ -74,7 +75,6 @@ export function buildInitialRealtimeResponseEvent() {
   return {
     type: "response.create",
     response: {
-      modalities: ["audio", "text"],
       instructions: INITIAL_AGENT_TURN_INSTRUCTIONS,
     },
   };
@@ -123,6 +123,7 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
   const [parsedResume, setParsedResume] = useState<ParsedResume>();
   const [events, setEvents] = useState<InterviewEvent[]>([]);
   const [recorderReady, setRecorderReady] = useState(false);
+  const [isResumeSubmitting, setIsResumeSubmitting] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -212,6 +213,7 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
     formData.set("token", token);
     formData.set("consent", formData.get("consent") === "on" ? "true" : "false");
 
+    setIsResumeSubmitting(true);
     try {
       const response = await fetch("/api/interviews/start", {
         method: "POST",
@@ -225,6 +227,8 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
       setStage("ready");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not start interview");
+    } finally {
+      setIsResumeSubmitting(false);
     }
   }
 
@@ -552,8 +556,11 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
           {stage === "upload" ? (
             <form
               className="grid gap-4"
-              action={(formData) => {
-                void submitResume(formData);
+              aria-busy={isResumeSubmitting}
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (isResumeSubmitting) return;
+                void submitResume(new FormData(event.currentTarget));
               }}
             >
               <div className="flex items-center gap-2">
@@ -593,10 +600,23 @@ export function CandidateInterviewFlow({ token, roleTitle, level }: Props) {
                   I consent to recording and storing this interview for review.
                 </span>
               </label>
-              <button className="button button-primary" type="submit">
-                <Send size={17} aria-hidden />
-                Continue
+              <button
+                className="button button-primary"
+                type="submit"
+                disabled={isResumeSubmitting}
+              >
+                {isResumeSubmitting ? (
+                  <Loader2 size={17} className="animate-spin" aria-hidden />
+                ) : (
+                  <Send size={17} aria-hidden />
+                )}
+                {isResumeSubmitting ? "Uploading and parsing" : "Continue"}
               </button>
+              {isResumeSubmitting ? (
+                <p className="muted text-sm" role="status">
+                  Uploading and parsing your resume...
+                </p>
+              ) : null}
             </form>
           ) : null}
 
