@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 
 const isAdminRequestMock = vi.fn();
+const getAdminAccessStatusMock = vi.fn();
 
 vi.mock("@/lib/server/admin", async () => {
   const actual = await vi.importActual<typeof import("@/lib/server/admin")>(
@@ -9,11 +10,13 @@ vi.mock("@/lib/server/admin", async () => {
   );
   return {
     ...actual,
+    getAdminAccessStatus: (...args: unknown[]) =>
+      getAdminAccessStatusMock(...args),
     isAdminRequest: (...args: unknown[]) => isAdminRequestMock(...args),
   };
 });
 
-import { DELETE } from "./route";
+import { DELETE, PATCH } from "./route";
 import {
   appendInterviewEvents,
   createInterview,
@@ -21,10 +24,12 @@ import {
   getInterviewSummary,
   listInterviewEvents,
   saveInterviewSummary,
+  updateInterview,
 } from "@/lib/server/store";
 
 beforeEach(() => {
   isAdminRequestMock.mockReset();
+  getAdminAccessStatusMock.mockReset();
   delete process.env.NODE_ENV;
   delete process.env.SUPABASE_URL;
   delete process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -36,6 +41,12 @@ afterEach(() => {
 
 function makeRequest() {
   return {} as NextRequest;
+}
+
+function makeJsonRequest(body: unknown) {
+  return {
+    json: vi.fn().mockResolvedValue(body),
+  } as unknown as NextRequest;
 }
 
 function makeContext(id: string) {
@@ -94,3 +105,101 @@ describe("DELETE /api/admin/interviews/[id]", () => {
     expect(response.status).toBe(404);
   });
 });
+
+describe("PATCH /api/admin/interviews/[id]", () => {
+  it("returns 401 when not signed in", async () => {
+    getAdminAccessStatusMock.mockResolvedValue({ status: "unauthenticated" });
+    const response = await PATCH(
+      makeJsonRequest({ action: "reserve" }),
+      makeContext("int_1"),
+    );
+    expect(response.status).toBe(401);
+  });
+
+  it("returns 400 for invalid review actions", async () => {
+    getAdminAccessStatusMock.mockResolvedValue({
+      status: "authorized",
+      email: "reviewer@example.com",
+    });
+    const interview = await makeCompletedInterview();
+
+    const response = await PATCH(
+      makeJsonRequest({ action: "decision", decision: "maybe" }),
+      makeContext(interview.id),
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it("reserves a completed interview for the signed-in reviewer", async () => {
+    getAdminAccessStatusMock.mockResolvedValue({
+      status: "authorized",
+      email: "Reviewer@Example.com",
+    });
+    const interview = await makeCompletedInterview();
+
+    const response = await PATCH(
+      makeJsonRequest({ action: "reserve" }),
+      makeContext(interview.id),
+    );
+    const body = (await response.json()) as {
+      interview: { reservedByEmail?: string };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.interview.reservedByEmail).toBe("reviewer@example.com");
+  });
+
+  it("returns 409 when another reviewer has an active reservation", async () => {
+    const interview = await makeCompletedInterview();
+    await updateInterview(interview.id, {
+      reservedByEmail: "owner@example.com",
+      reservedAt: new Date().toISOString(),
+    });
+    getAdminAccessStatusMock.mockResolvedValue({
+      status: "authorized",
+      email: "other@example.com",
+    });
+
+    const response = await PATCH(
+      makeJsonRequest({ action: "reserve" }),
+      makeContext(interview.id),
+    );
+    const body = (await response.json()) as { reason?: string };
+
+    expect(response.status).toBe(409);
+    expect(body.reason).toBe("already_reserved");
+  });
+
+  it("submits a pass/fail decision for the reserving reviewer", async () => {
+    const interview = await makeCompletedInterview();
+    await updateInterview(interview.id, {
+      reservedByEmail: "owner@example.com",
+      reservedAt: new Date().toISOString(),
+    });
+    getAdminAccessStatusMock.mockResolvedValue({
+      status: "authorized",
+      email: "owner@example.com",
+    });
+
+    const response = await PATCH(
+      makeJsonRequest({ action: "decision", decision: "pass" }),
+      makeContext(interview.id),
+    );
+    const body = (await response.json()) as {
+      interview: { reviewDecision?: string; reviewedByEmail?: string };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.interview.reviewDecision).toBe("pass");
+    expect(body.interview.reviewedByEmail).toBe("owner@example.com");
+  });
+});
+
+async function makeCompletedInterview() {
+  const interview = await makeInterview();
+  return updateInterview(interview.id, {
+    status: "completed",
+    completedAt: new Date().toISOString(),
+  });
+}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, FileText, Mic, UserRound } from "lucide-react";
 import { AdminForbidden } from "@/components/admin-forbidden";
+import { InterviewReviewActions } from "@/components/interview-review-actions";
 import { StatusBadge } from "@/components/status-badge";
 import { getAdminAccessStatus } from "@/lib/server/admin";
 import {
@@ -127,6 +128,11 @@ export default async function InterviewDetailPage({ params }: Props) {
         </section>
 
         <aside className="grid gap-4">
+          <InterviewReviewActions
+            initialInterview={interview}
+            reviewerEmail={access.email}
+          />
+
           <article className="panel p-5 sm:p-6">
             <div className="mb-3 flex items-center gap-3">
               <span className="rounded-full border border-border bg-panel-subtle p-2">

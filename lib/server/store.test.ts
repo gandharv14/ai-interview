@@ -17,8 +17,11 @@ import {
   getInterviewSummary,
   listInterviews,
   listInterviewEvents,
+  reserveInterviewForReviewer,
+  REVIEW_RESERVATION_TTL_MS,
   saveInterviewSummary,
   StoreSetupError,
+  submitInterviewDecision,
   updateInterview,
 } from "@/lib/server/store";
 
@@ -100,7 +103,119 @@ describe("local store fallback", () => {
     await expect(listInterviewEvents(interview.id)).resolves.toEqual([]);
     await expect(getInterviewSummary(interview.id)).resolves.toBeUndefined();
   });
+
+  it("reserves completed interviews for one reviewer at a time", async () => {
+    const interview = await createCompletedInterview();
+
+    const reserved = await reserveInterviewForReviewer(
+      interview.id,
+      "Reviewer@Example.com",
+    );
+    expect(reserved).toMatchObject({
+      ok: true,
+      interview: { reservedByEmail: "reviewer@example.com" },
+    });
+
+    const conflict = await reserveInterviewForReviewer(
+      interview.id,
+      "other@example.com",
+    );
+    expect(conflict).toMatchObject({
+      ok: false,
+      reason: "already_reserved",
+    });
+  });
+
+  it("allows an expired reservation to be picked up by another reviewer", async () => {
+    const interview = await createCompletedInterview();
+    await updateInterview(interview.id, {
+      reservedByEmail: "stale@example.com",
+      reservedAt: new Date(Date.now() - REVIEW_RESERVATION_TTL_MS - 1_000)
+        .toISOString(),
+    });
+
+    await expect(getInterview(interview.id)).resolves.toMatchObject({
+      reservedByEmail: undefined,
+      reservedAt: undefined,
+    });
+
+    const reserved = await reserveInterviewForReviewer(
+      interview.id,
+      "fresh@example.com",
+    );
+    expect(reserved).toMatchObject({
+      ok: true,
+      interview: { reservedByEmail: "fresh@example.com" },
+    });
+  });
+
+  it("requires the owning reviewer reservation before pass/fail", async () => {
+    const interview = await createCompletedInterview();
+
+    await expect(
+      submitInterviewDecision(interview.id, "reviewer@example.com", "pass"),
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: "reservation_required",
+    });
+
+    await reserveInterviewForReviewer(interview.id, "reviewer@example.com");
+    await expect(
+      submitInterviewDecision(interview.id, "other@example.com", "pass"),
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: "reserved_by_other",
+    });
+
+    const decided = await submitInterviewDecision(
+      interview.id,
+      "reviewer@example.com",
+      "fail",
+    );
+    expect(decided).toMatchObject({
+      ok: true,
+      interview: {
+        reviewDecision: "fail",
+        reviewedByEmail: "reviewer@example.com",
+      },
+    });
+  });
+
+  it("does not allow decided interviews to be reserved again", async () => {
+    const interview = await createCompletedInterview();
+    await reserveInterviewForReviewer(interview.id, "reviewer@example.com");
+    await submitInterviewDecision(interview.id, "reviewer@example.com", "pass");
+
+    await expect(
+      reserveInterviewForReviewer(interview.id, "other@example.com"),
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: "already_decided",
+    });
+  });
 });
+
+async function createCompletedInterview() {
+  const interview = await createInterview({
+    candidateName: "Katherine",
+    roleTitle: "Backend Engineer",
+    level: "L5",
+    jobDescription: "APIs",
+    parsedResume: {
+      headline: "Backend engineer",
+      skills: ["TypeScript"],
+      experience: [],
+      projects: [],
+      education: [],
+      highSignalClaims: [],
+    },
+  });
+
+  return updateInterview(interview.id, {
+    status: "completed",
+    completedAt: new Date().toISOString(),
+  });
+}
 
 describe("appendInterviewEvents (Supabase path)", () => {
   afterEach(() => {

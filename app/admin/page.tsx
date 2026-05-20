@@ -29,6 +29,7 @@ export default async function AdminPage() {
   return (
     <AdminDashboard
       initialInterviews={interviews}
+      reviewerEmail={access.email}
       setupIssue={setupIssue}
     />
   );

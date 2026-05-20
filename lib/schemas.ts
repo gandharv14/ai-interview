@@ -101,9 +101,22 @@ export const summarySchema = z.object({
   followUpQuestions: z.array(z.string()).default([]),
 });
 
+export const adminInterviewReviewActionSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("reserve"),
+  }),
+  z.object({
+    action: z.literal("decision"),
+    decision: z.enum(["pass", "fail"]),
+  }),
+]);
+
 export type CreateInviteInput = z.infer<typeof createInviteSchema>;
 export type InterviewEventInput = z.infer<typeof interviewEventInputSchema>;
 export type SummaryInput = z.infer<typeof summarySchema>;
+export type AdminInterviewReviewActionInput = z.infer<
+  typeof adminInterviewReviewActionSchema
+>;
 
 export const parsedResumeJsonSchema = {
   type: "object",

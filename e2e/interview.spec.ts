@@ -78,8 +78,9 @@ test("admin creates invite and candidate completes mocked interview workflow", a
   await expect(page.getByText("Complete").last()).toBeVisible();
 
   await page.goto("/admin");
-  await expect(page.getByText(candidateName)).toBeVisible();
-  await page.getByText(candidateName).click();
+  const candidateCard = page.locator("article").filter({ hasText: candidateName });
+  await expect(candidateCard).toBeVisible();
+  await candidateCard.getByRole("link", { name: /Review interview/ }).click();
   await expect(page.getByRole("heading", { name: candidateName })).toBeVisible();
   await expect(page.getByText(/Recording uploaded \(/).first()).toBeVisible();
   await expect(

@@ -4,8 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   Clipboard,
+  CheckCircle2,
   ExternalLink,
   FileText,
+  LockKeyhole,
   LogOut,
   Plus,
   RefreshCw,
@@ -17,6 +19,7 @@ import type { Interview, SetupIssue } from "@/lib/types";
 
 type Props = {
   initialInterviews: Interview[];
+  reviewerEmail: string;
   setupIssue?: SetupIssue;
 };
 
@@ -25,11 +28,16 @@ type InviteResponse = {
   inviteUrls?: string[];
 };
 
-export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
+export function AdminDashboard({
+  initialInterviews,
+  reviewerEmail,
+  setupIssue,
+}: Props) {
   const [interviews, setInterviews] = useState(initialInterviews);
   const [inviteUrls, setInviteUrls] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [reservingId, setReservingId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [interviewError, setInterviewError] = useState("");
   const databaseUnavailable = Boolean(setupIssue);
@@ -40,6 +48,9 @@ export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
   ).length;
   const liveCount = interviews.filter(
     (interview) => interview.status === "in_progress",
+  ).length;
+  const reviewedCount = interviews.filter(
+    (interview) => interview.reviewDecision,
   ).length;
 
   async function createInvite(formData: FormData) {
@@ -123,6 +134,46 @@ export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
     }
   }
 
+  async function reserveInterview(id: string) {
+    if (setupIssue) {
+      setInterviewError(setupIssue.message);
+      return;
+    }
+
+    setReservingId(id);
+    setInterviewError("");
+    try {
+      const response = await fetch(`/api/admin/interviews/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reserve" }),
+      });
+      const data = (await response.json()) as {
+        interview?: Interview;
+        error?: string;
+      };
+      if (!response.ok) {
+        if (data.interview) updateInterviewInList(data.interview);
+        throw new Error(data.error || "Could not reserve interview");
+      }
+      if (data.interview) updateInterviewInList(data.interview);
+    } catch (err) {
+      setInterviewError(
+        err instanceof Error ? err.message : "Could not reserve interview",
+      );
+    } finally {
+      setReservingId(null);
+    }
+  }
+
+  function updateInterviewInList(updated: Interview) {
+    setInterviews((current) =>
+      current.map((interview) =>
+        interview.id === updated.id ? updated : interview,
+      ),
+    );
+  }
+
   async function copyInvite() {
     if (!inviteUrl) return;
     await navigator.clipboard.writeText(inviteUrl);
@@ -150,7 +201,7 @@ export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
             Sign out
           </a>
         </div>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-4">
           <div className="stat-card">
             <p className="muted text-xs font-bold uppercase tracking-wide">
               Total interviews
@@ -168,6 +219,12 @@ export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
               Completed
             </p>
             <p className="mt-2 text-3xl font-bold">{completedCount}</p>
+          </div>
+          <div className="stat-card">
+            <p className="muted text-xs font-bold uppercase tracking-wide">
+              Reviewed
+            </p>
+            <p className="mt-2 text-3xl font-bold">{reviewedCount}</p>
           </div>
         </div>
       </header>
@@ -375,7 +432,13 @@ export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
                         {interview.roleTitle} · {interview.level}
                       </p>
                     </div>
-                    <StatusBadge status={interview.status} />
+                    <div className="flex flex-wrap items-center gap-2">
+                      <StatusBadge status={interview.status} />
+                      <ReviewBadge
+                        interview={interview}
+                        reviewerEmail={reviewerEmail}
+                      />
+                    </div>
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
                     <Link
@@ -385,20 +448,42 @@ export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
                       Review interview
                       <ExternalLink size={14} aria-hidden />
                     </Link>
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      onClick={() =>
-                        void deleteInterview(interview.id, interview.candidateName)
-                      }
-                      disabled={
-                        databaseUnavailable || deletingId === interview.id
-                      }
-                      aria-label={`Delete interview for ${interview.candidateName}`}
-                    >
-                      <Trash2 size={16} aria-hidden />
-                      {deletingId === interview.id ? "Deleting" : "Delete"}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {interview.status === "completed" &&
+                      !interview.reviewDecision ? (
+                        <button
+                          className="button button-secondary"
+                          type="button"
+                          onClick={() => void reserveInterview(interview.id)}
+                          disabled={
+                            databaseUnavailable ||
+                            reservingId === interview.id ||
+                            Boolean(interview.reservedByEmail)
+                          }
+                        >
+                          <LockKeyhole size={16} aria-hidden />
+                          {reservingId === interview.id
+                            ? "Reserving"
+                            : interview.reservedByEmail
+                              ? "Reserved"
+                              : "Reserve"}
+                        </button>
+                      ) : null}
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={() =>
+                          void deleteInterview(interview.id, interview.candidateName)
+                        }
+                        disabled={
+                          databaseUnavailable || deletingId === interview.id
+                        }
+                        aria-label={`Delete interview for ${interview.candidateName}`}
+                      >
+                        <Trash2 size={16} aria-hidden />
+                        {deletingId === interview.id ? "Deleting" : "Delete"}
+                      </button>
+                    </div>
                   </div>
                 </article>
               ))
@@ -408,4 +493,40 @@ export function AdminDashboard({ initialInterviews, setupIssue }: Props) {
       </section>
     </main>
   );
+}
+
+function ReviewBadge({
+  interview,
+  reviewerEmail,
+}: {
+  interview: Interview;
+  reviewerEmail: string;
+}) {
+  if (interview.reviewDecision) {
+    return (
+      <span className="badge">
+        <CheckCircle2 size={14} aria-hidden />
+        {interview.reviewDecision === "pass" ? "Passed" : "Failed"}
+      </span>
+    );
+  }
+
+  if (interview.reservedByEmail) {
+    const reservedByCurrentReviewer =
+      interview.reservedByEmail.toLowerCase() === reviewerEmail.toLowerCase();
+    return (
+      <span className="badge">
+        <LockKeyhole size={14} aria-hidden />
+        {reservedByCurrentReviewer
+          ? "Reserved by you"
+          : `Reserved by ${interview.reservedByEmail}`}
+      </span>
+    );
+  }
+
+  if (interview.status === "completed") {
+    return <span className="badge">Available to reserve</span>;
+  }
+
+  return null;
 }

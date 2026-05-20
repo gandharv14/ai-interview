@@ -2,6 +2,8 @@ export type InviteStatus = "active" | "used" | "expired" | "revoked";
 
 export type InterviewStatus = "ready" | "in_progress" | "completed" | "failed";
 
+export type ReviewDecision = "pass" | "fail";
+
 export type InterviewEventSource = "candidate" | "agent" | "system";
 
 export type ResumeExperience = {
@@ -57,6 +59,11 @@ export type Interview = {
   parsedResume: ParsedResume;
   startedAt?: string;
   completedAt?: string;
+  reservedByEmail?: string;
+  reservedAt?: string;
+  reviewDecision?: ReviewDecision;
+  reviewedByEmail?: string;
+  reviewedAt?: string;
   createdAt: string;
   updatedAt: string;
 };

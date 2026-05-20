@@ -17,10 +17,24 @@ import type {
   InterviewSummary,
   InviteStatus,
   ParsedResume,
+  ReviewDecision,
 } from "@/lib/types";
 
 const RESUME_BUCKET = "resumes";
 const RECORDING_BUCKET = "interview-recordings";
+export const REVIEW_RESERVATION_TTL_MS = 30 * 60 * 1000;
+
+export type ReviewActionFailureReason =
+  | "not_found"
+  | "not_completed"
+  | "already_decided"
+  | "already_reserved"
+  | "reservation_required"
+  | "reserved_by_other";
+
+export type ReviewActionResult =
+  | { ok: true; interview: Interview }
+  | { ok: false; reason: ReviewActionFailureReason; interview?: Interview };
 
 type InviteInsert = {
   tokenHash: string;
@@ -84,6 +98,11 @@ type SupabaseInterviewRow = {
   parsed_resume: ParsedResume;
   started_at: string | null;
   completed_at: string | null;
+  reserved_by_email: string | null;
+  reserved_at: string | null;
+  review_decision: ReviewDecision | null;
+  reviewed_by_email: string | null;
+  reviewed_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -169,6 +188,24 @@ async function writeLocalData(data: LocalStoreData) {
   await fs.writeFile(filePath, JSON.stringify(data, null, 2));
 }
 
+let localDataWriteQueue: Promise<void> = Promise.resolve();
+
+async function withLocalDataWrite<T>(
+  callback: (data: LocalStoreData) => T | Promise<T>,
+) {
+  const run = localDataWriteQueue.then(async () => {
+    const data = await ensureLocalData();
+    const result = await callback(data);
+    await writeLocalData(data);
+    return result;
+  });
+  localDataWriteQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 function mapInvite(row: SupabaseInviteRow): InterviewInvite {
   return {
     id: row.id,
@@ -183,7 +220,7 @@ function mapInvite(row: SupabaseInviteRow): InterviewInvite {
 }
 
 function mapInterview(row: SupabaseInterviewRow): Interview {
-  return {
+  return normalizeInterviewReviewState({
     id: row.id,
     inviteId: row.invite_id ?? undefined,
     candidateName: row.candidate_name,
@@ -198,9 +235,14 @@ function mapInterview(row: SupabaseInterviewRow): Interview {
     parsedResume: row.parsed_resume,
     startedAt: row.started_at ?? undefined,
     completedAt: row.completed_at ?? undefined,
+    reservedByEmail: row.reserved_by_email ?? undefined,
+    reservedAt: row.reserved_at ?? undefined,
+    reviewDecision: row.review_decision ?? undefined,
+    reviewedByEmail: row.reviewed_by_email ?? undefined,
+    reviewedAt: row.reviewed_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-  };
+  });
 }
 
 function mapEvent(row: SupabaseEventRow): InterviewEvent {
@@ -231,6 +273,30 @@ function mapSummary(row: SupabaseSummaryRow): InterviewSummary {
 
 function isExpired(invite: InterviewInvite) {
   return new Date(invite.expiresAt).getTime() < Date.now();
+}
+
+function isReservationExpired(interview: Interview, referenceTime = Date.now()) {
+  if (interview.reviewDecision || !interview.reservedAt) return false;
+  return (
+    new Date(interview.reservedAt).getTime() + REVIEW_RESERVATION_TTL_MS <=
+    referenceTime
+  );
+}
+
+function normalizeInterviewReviewState<T extends Interview>(
+  interview: T,
+  referenceTime = Date.now(),
+): T {
+  if (!isReservationExpired(interview, referenceTime)) return interview;
+  return {
+    ...interview,
+    reservedByEmail: undefined,
+    reservedAt: undefined,
+  };
+}
+
+function reservationCutoff(referenceTime = Date.now()) {
+  return new Date(referenceTime - REVIEW_RESERVATION_TTL_MS).toISOString();
 }
 
 function requireSupabase() {
@@ -287,20 +353,20 @@ export async function createInvite(input: InviteInsert) {
     return mapInvite(data as SupabaseInviteRow);
   }
 
-  const data = await ensureLocalData();
-  const invite: InterviewInvite = {
-    id: crypto.randomUUID(),
-    tokenHash: input.tokenHash,
-    roleTitle: input.roleTitle,
-    level: input.level,
-    jobDescription: input.jobDescription,
-    expiresAt: input.expiresAt,
-    status: "active",
-    createdAt: now(),
-  };
-  data.invites.unshift(invite);
-  await writeLocalData(data);
-  return invite;
+  return withLocalDataWrite((data) => {
+    const invite: InterviewInvite = {
+      id: crypto.randomUUID(),
+      tokenHash: input.tokenHash,
+      roleTitle: input.roleTitle,
+      level: input.level,
+      jobDescription: input.jobDescription,
+      expiresAt: input.expiresAt,
+      status: "active",
+      createdAt: now(),
+    };
+    data.invites.unshift(invite);
+    return invite;
+  });
 }
 
 export async function getInviteByTokenHash(tokenHash: string) {
@@ -321,14 +387,14 @@ export async function getInviteByTokenHash(tokenHash: string) {
     return invite;
   }
 
-  const data = await ensureLocalData();
-  const invite = data.invites.find((item) => item.tokenHash === tokenHash);
-  if (!invite) return undefined;
-  if (invite.status === "active" && isExpired(invite)) {
-    invite.status = "expired";
-    await writeLocalData(data);
-  }
-  return invite;
+  return withLocalDataWrite((data) => {
+    const invite = data.invites.find((item) => item.tokenHash === tokenHash);
+    if (!invite) return undefined;
+    if (invite.status === "active" && isExpired(invite)) {
+      invite.status = "expired";
+    }
+    return invite;
+  });
 }
 
 export async function updateInviteStatus(id: string, status: InviteStatus) {
@@ -342,12 +408,10 @@ export async function updateInviteStatus(id: string, status: InviteStatus) {
     return;
   }
 
-  const data = await ensureLocalData();
-  const invite = data.invites.find((item) => item.id === id);
-  if (invite) {
-    invite.status = status;
-    await writeLocalData(data);
-  }
+  await withLocalDataWrite((data) => {
+    const invite = data.invites.find((item) => item.id === id);
+    if (invite) invite.status = status;
+  });
 }
 
 export async function createInterview(input: InterviewInsert) {
@@ -372,25 +436,25 @@ export async function createInterview(input: InterviewInsert) {
     return mapInterview(data as SupabaseInterviewRow);
   }
 
-  const data = await ensureLocalData();
-  const createdAt = now();
-  const interview: Interview = {
-    id: crypto.randomUUID(),
-    inviteId: input.inviteId,
-    candidateName: input.candidateName,
-    candidateEmail: input.candidateEmail,
-    roleTitle: input.roleTitle,
-    level: input.level,
-    jobDescription: input.jobDescription,
-    status: "ready",
-    parsedResume: input.parsedResume,
-    resumeFilename: input.resumeFilename,
-    createdAt,
-    updatedAt: createdAt,
-  };
-  data.interviews.unshift(interview);
-  await writeLocalData(data);
-  return interview;
+  return withLocalDataWrite((data) => {
+    const createdAt = now();
+    const interview: Interview = {
+      id: crypto.randomUUID(),
+      inviteId: input.inviteId,
+      candidateName: input.candidateName,
+      candidateEmail: input.candidateEmail,
+      roleTitle: input.roleTitle,
+      level: input.level,
+      jobDescription: input.jobDescription,
+      status: "ready",
+      parsedResume: input.parsedResume,
+      resumeFilename: input.resumeFilename,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    data.interviews.unshift(interview);
+    return interview;
+  });
 }
 
 export async function updateInterview(
@@ -405,6 +469,11 @@ export async function updateInterview(
       | "parsedResume"
       | "startedAt"
       | "completedAt"
+      | "reservedByEmail"
+      | "reservedAt"
+      | "reviewDecision"
+      | "reviewedByEmail"
+      | "reviewedAt"
     >
   >,
 ) {
@@ -426,6 +495,17 @@ export async function updateInterview(
     }
     if (patch.startedAt !== undefined) updatePayload.started_at = patch.startedAt;
     if (patch.completedAt !== undefined) updatePayload.completed_at = patch.completedAt;
+    if (patch.reservedByEmail !== undefined) {
+      updatePayload.reserved_by_email = patch.reservedByEmail;
+    }
+    if (patch.reservedAt !== undefined) updatePayload.reserved_at = patch.reservedAt;
+    if (patch.reviewDecision !== undefined) {
+      updatePayload.review_decision = patch.reviewDecision;
+    }
+    if (patch.reviewedByEmail !== undefined) {
+      updatePayload.reviewed_by_email = patch.reviewedByEmail;
+    }
+    if (patch.reviewedAt !== undefined) updatePayload.reviewed_at = patch.reviewedAt;
 
     const { data, error } = await supabase
       .from("interviews")
@@ -437,12 +517,12 @@ export async function updateInterview(
     return mapInterview(data as SupabaseInterviewRow);
   }
 
-  const data = await ensureLocalData();
-  const interview = data.interviews.find((item) => item.id === id);
-  if (!interview) throw new Error("Interview not found");
-  Object.assign(interview, patch, { updatedAt: now() });
-  await writeLocalData(data);
-  return interview;
+  return withLocalDataWrite((data) => {
+    const interview = data.interviews.find((item) => item.id === id);
+    if (!interview) throw new Error("Interview not found");
+    Object.assign(interview, patch, { updatedAt: now() });
+    return normalizeInterviewReviewState(interview);
+  });
 }
 
 export async function getInterview(id: string) {
@@ -458,7 +538,8 @@ export async function getInterview(id: string) {
   }
 
   const data = await ensureLocalData();
-  return data.interviews.find((interview) => interview.id === id);
+  const interview = data.interviews.find((item) => item.id === id);
+  return interview ? normalizeInterviewReviewState(interview) : undefined;
 }
 
 export async function listInterviews() {
@@ -475,7 +556,160 @@ export async function listInterviews() {
   const data = await ensureLocalData();
   return [...data.interviews].sort((left, right) =>
     right.createdAt.localeCompare(left.createdAt),
-  );
+  ).map((interview) => normalizeInterviewReviewState(interview));
+}
+
+export async function reserveInterviewForReviewer(
+  id: string,
+  reviewerEmail: string,
+): Promise<ReviewActionResult> {
+  const email = reviewerEmail.trim().toLowerCase();
+  const reservedAt = now();
+
+  if (shouldUseSupabaseStore()) {
+    const supabase = requireSupabase();
+    const { data, error } = await supabase
+      .from("interviews")
+      .update({
+        reserved_by_email: email,
+        reserved_at: reservedAt,
+        updated_at: reservedAt,
+      })
+      .eq("id", id)
+      .eq("status", "completed")
+      .is("review_decision", null)
+      .or(`reserved_at.is.null,reserved_at.lt.${reservationCutoff()}`)
+      .select("*");
+    if (error) throw error;
+    const rows = data as SupabaseInterviewRow[] | null;
+    if (rows?.[0]) {
+      return { ok: true, interview: mapInterview(rows[0]) };
+    }
+    return classifyReservationFailure(id, email);
+  }
+
+  return withLocalDataWrite((data) => {
+    const interview = data.interviews.find((item) => item.id === id);
+    if (!interview) return { ok: false, reason: "not_found" };
+
+    const normalized = normalizeInterviewReviewState(interview);
+    if (normalized.reviewDecision) {
+      return { ok: false, reason: "already_decided", interview: normalized };
+    }
+    if (normalized.status !== "completed") {
+      return { ok: false, reason: "not_completed", interview: normalized };
+    }
+    if (normalized.reservedAt && normalized.reservedByEmail) {
+      if (normalized.reservedByEmail === email) {
+        interview.reservedAt = reservedAt;
+        interview.updatedAt = reservedAt;
+        return { ok: true, interview: normalizeInterviewReviewState(interview) };
+      }
+      return { ok: false, reason: "already_reserved", interview: normalized };
+    }
+
+    interview.reservedByEmail = email;
+    interview.reservedAt = reservedAt;
+    interview.updatedAt = reservedAt;
+    return { ok: true, interview: normalizeInterviewReviewState(interview) };
+  });
+}
+
+export async function submitInterviewDecision(
+  id: string,
+  reviewerEmail: string,
+  decision: ReviewDecision,
+): Promise<ReviewActionResult> {
+  const email = reviewerEmail.trim().toLowerCase();
+  const reviewedAt = now();
+
+  if (shouldUseSupabaseStore()) {
+    const supabase = requireSupabase();
+    const { data, error } = await supabase
+      .from("interviews")
+      .update({
+        review_decision: decision,
+        reviewed_by_email: email,
+        reviewed_at: reviewedAt,
+        updated_at: reviewedAt,
+      })
+      .eq("id", id)
+      .eq("status", "completed")
+      .is("review_decision", null)
+      .eq("reserved_by_email", email)
+      .gte("reserved_at", reservationCutoff())
+      .select("*");
+    if (error) throw error;
+    const rows = data as SupabaseInterviewRow[] | null;
+    if (rows?.[0]) {
+      return { ok: true, interview: mapInterview(rows[0]) };
+    }
+    return classifyDecisionFailure(id, email);
+  }
+
+  return withLocalDataWrite((data) => {
+    const interview = data.interviews.find((item) => item.id === id);
+    if (!interview) return { ok: false, reason: "not_found" };
+
+    const normalized = normalizeInterviewReviewState(interview);
+    if (normalized.reviewDecision) {
+      return { ok: false, reason: "already_decided", interview: normalized };
+    }
+    if (normalized.status !== "completed") {
+      return { ok: false, reason: "not_completed", interview: normalized };
+    }
+    if (!normalized.reservedAt || !normalized.reservedByEmail) {
+      return { ok: false, reason: "reservation_required", interview: normalized };
+    }
+    if (normalized.reservedByEmail !== email) {
+      return { ok: false, reason: "reserved_by_other", interview: normalized };
+    }
+
+    interview.reviewDecision = decision;
+    interview.reviewedByEmail = email;
+    interview.reviewedAt = reviewedAt;
+    interview.updatedAt = reviewedAt;
+    return { ok: true, interview: normalizeInterviewReviewState(interview) };
+  });
+}
+
+async function classifyReservationFailure(
+  id: string,
+  reviewerEmail: string,
+): Promise<ReviewActionResult> {
+  const interview = await getInterview(id);
+  if (!interview) return { ok: false, reason: "not_found" };
+  if (interview.reviewDecision) {
+    return { ok: false, reason: "already_decided", interview };
+  }
+  if (interview.status !== "completed") {
+    return { ok: false, reason: "not_completed", interview };
+  }
+  if (interview.reservedByEmail === reviewerEmail && interview.reservedAt) {
+    return { ok: true, interview };
+  }
+  return { ok: false, reason: "already_reserved", interview };
+}
+
+async function classifyDecisionFailure(
+  id: string,
+  reviewerEmail: string,
+): Promise<ReviewActionResult> {
+  const interview = await getInterview(id);
+  if (!interview) return { ok: false, reason: "not_found" };
+  if (interview.reviewDecision) {
+    return { ok: false, reason: "already_decided", interview };
+  }
+  if (interview.status !== "completed") {
+    return { ok: false, reason: "not_completed", interview };
+  }
+  if (!interview.reservedAt || !interview.reservedByEmail) {
+    return { ok: false, reason: "reservation_required", interview };
+  }
+  if (interview.reservedByEmail !== reviewerEmail) {
+    return { ok: false, reason: "reserved_by_other", interview };
+  }
+  return { ok: false, reason: "reservation_required", interview };
 }
 
 export async function deleteInterview(id: string) {
@@ -491,15 +725,17 @@ export async function deleteInterview(id: string) {
     return Boolean(data);
   }
 
-  const data = await ensureLocalData();
-  const existing = data.interviews.find((interview) => interview.id === id);
-  if (!existing) return false;
+  return withLocalDataWrite((data) => {
+    const existing = data.interviews.find((interview) => interview.id === id);
+    if (!existing) return false;
 
-  data.interviews = data.interviews.filter((interview) => interview.id !== id);
-  data.events = data.events.filter((event) => event.interviewId !== id);
-  data.summaries = data.summaries.filter((summary) => summary.interviewId !== id);
-  await writeLocalData(data);
-  return true;
+    data.interviews = data.interviews.filter((interview) => interview.id !== id);
+    data.events = data.events.filter((event) => event.interviewId !== id);
+    data.summaries = data.summaries.filter(
+      (summary) => summary.interviewId !== id,
+    );
+    return true;
+  });
 }
 
 export async function appendInterviewEvents(
@@ -532,19 +768,19 @@ export async function appendInterviewEvents(
     return (data as SupabaseEventRow[]).map(mapEvent);
   }
 
-  const data = await ensureLocalData();
-  const saved = events.map((event) => ({
-    id: crypto.randomUUID(),
-    interviewId,
-    source: event.source,
-    type: event.type,
-    text: event.text,
-    payload: event.payload,
-    createdAt: event.createdAt ?? now(),
-  }));
-  data.events.push(...saved);
-  await writeLocalData(data);
-  return saved;
+  return withLocalDataWrite((data) => {
+    const saved = events.map((event) => ({
+      id: crypto.randomUUID(),
+      interviewId,
+      source: event.source,
+      type: event.type,
+      text: event.text,
+      payload: event.payload,
+      createdAt: event.createdAt ?? now(),
+    }));
+    data.events.push(...saved);
+    return saved;
+  });
 }
 
 export async function listInterviewEvents(interviewId: string) {
@@ -591,28 +827,28 @@ export async function saveInterviewSummary(
     return mapSummary(data as SupabaseSummaryRow);
   }
 
-  const data = await ensureLocalData();
-  const existing = data.summaries.find(
-    (summary) => summary.interviewId === interviewId,
-  );
-  const saved: InterviewSummary = {
-    id: existing?.id ?? crypto.randomUUID(),
-    interviewId,
-    model: input.model,
-    evidence: input.evidence,
-    strengths: input.strengths,
-    risks: input.risks,
-    followUpQuestions: input.followUpQuestions,
-    transcriptPath: input.transcriptPath,
-    createdAt: existing?.createdAt ?? now(),
-  };
-  if (existing) {
-    Object.assign(existing, saved);
-  } else {
-    data.summaries.push(saved);
-  }
-  await writeLocalData(data);
-  return saved;
+  return withLocalDataWrite((data) => {
+    const existing = data.summaries.find(
+      (summary) => summary.interviewId === interviewId,
+    );
+    const saved: InterviewSummary = {
+      id: existing?.id ?? crypto.randomUUID(),
+      interviewId,
+      model: input.model,
+      evidence: input.evidence,
+      strengths: input.strengths,
+      risks: input.risks,
+      followUpQuestions: input.followUpQuestions,
+      transcriptPath: input.transcriptPath,
+      createdAt: existing?.createdAt ?? now(),
+    };
+    if (existing) {
+      Object.assign(existing, saved);
+    } else {
+      data.summaries.push(saved);
+    }
+    return saved;
+  });
 }
 
 export async function getInterviewSummary(interviewId: string) {
